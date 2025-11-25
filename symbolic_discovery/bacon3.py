@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Set, Any, Union
 from itertools import combinations
 
 from sympy import Symbol, Expr, symbols
@@ -31,14 +30,14 @@ class BACON3:
         self.max_depth = max_depth
         
         # Internal states
-        self.logs: List[str] = []
-        self.variable_pool: List[Variable] = []
-        self.target_var: Optional[Variable] = None
-        self.final_equation: Optional[str] = None
+        self.logs: list[str] = []
+        self.variable_pool: list[Variable] = []
+        self.target_var: Variable | None = None
+        self.final_equation: str | None = None
         
         # SymPy states
-        self.symbol_map: Dict[str, Symbol] = {} 
-        self.known_symbols: Set[str] = set()
+        self.symbol_map: dict[str, Symbol] = {} 
+        self.known_symbols: set[str] = set()
 
     def _log(self, message: str):
         """
@@ -80,12 +79,12 @@ class BACON3:
 
         return np.abs(corr_val) > self.monotonicity_threshold
 
-    def _generate_composites(self, variables: List[Variable]) -> List[Variable]:
+    def _generate_composites(self, variables: list[Variable]) -> list[Variable]:
         """
         Generates invariants from ratios and products
         using SymPy to build expressions.
         """
-        new_composites: List[Variable] = []
+        new_composites: list[Variable] = []
 
         for v1, v2 in combinations(variables, 2):
             # Product
@@ -132,7 +131,7 @@ class BACON3:
             if col == target_col:
                 self.target_var = var
 
-    def _find_closing_relation(self) -> Optional[Tuple[str, Dict[str, float]]]:
+    def _find_closing_relation(self) -> tuple[str, dict[str, float]] | None:
         """
         Tries to find a simple linear fit (y = a*x + b) between
         the target and all other promoted variables.
@@ -202,7 +201,7 @@ class BACON3:
         # No fit found
         return None
 
-    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> Tuple[Optional[str], Dict[str, float]]:
+    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str | None, dict[str, float]]:
         """
         Runs the main BACON.3 "deterministic passes".
         
@@ -242,7 +241,7 @@ class BACON3:
                 self._log("No new composites generated. Stopping.")
                 break
             
-            promoted_this_layer: List[Variable] = []
+            promoted_this_layer: list[Variable] = []
             
             for composite in new_composites:
                 
@@ -265,7 +264,7 @@ class BACON3:
         self._log("\n--- Finding Closing Relation ---")
         
         # This will hold the {R2, MSE, MAE} dict
-        self.final_diagnostics: Dict[str, float] = {} 
+        self.final_diagnostics: dict[str, float] = {} 
         
         # Call the function
         fit_results = self._find_closing_relation()
