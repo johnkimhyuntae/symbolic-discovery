@@ -21,12 +21,14 @@ class BACON3:
     def __init__(self, 
                  constancy_threshold: float = 0.05,
                  monotonicity_threshold: float = 0.98,
+                 r2_threshold: float = 0.99,
                  max_depth: int = 3):
         """
         Initialises the BACON.3 solver.
         """
         self.constancy_threshold = constancy_threshold
         self.monotonicity_threshold = monotonicity_threshold
+        self.r2_threshold = r2_threshold
         self.max_depth = max_depth
         
         # Internal states
@@ -81,10 +83,20 @@ class BACON3:
 
     def _generate_composites(self, variables: list[Variable]) -> list[Variable]:
         """
-        Generates invariants from ratios and products
-        using SymPy to build expressions.
+        Generates invariants from ratios, products, and small integer powers (squares).
+        Uses SymPy to manage symbolic expressions.
         """
         new_composites: list[Variable] = []
+
+        # Powers
+        # Required for T-3 (t^2) and S-4 (x^2)
+        for v in variables:
+            # Square
+            square_symbol = v.symbol ** 2
+            if str(square_symbol) not in self.known_symbols:
+                square_values = v.values ** 2
+                new_composites.append(Variable(symbol=square_symbol, values=square_values))
+                self.known_symbols.add(str(square_symbol))
 
         for v1, v2 in combinations(variables, 2):
             # Product
@@ -182,7 +194,7 @@ class BACON3:
             self._log(f"  Testing closing relation: {str(self.target_var.symbol)} ~ {str(v.symbol)}. R-squared: {r2:.6f}")
 
             # 4. Check if this is the best, near-perfect fit
-            if r2 > 0.999 and r2 > best_r2: 
+            if r2 > self.r2_threshold and r2 > best_r2: 
                 best_r2 = r2
                 best_fit_symbol = v.symbol
                 best_coeffs = (a, b)
@@ -203,7 +215,7 @@ class BACON3:
 
     def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str | None, dict[str, float]]:
         """
-        Runs the main BACON.3 "deterministic passes".
+        Runs the main BACON.3 passes.
         
         This is the main entry point that executes the layered
         discovery loop and attempts to find a closing relation.
@@ -216,7 +228,7 @@ class BACON3:
         Returns:
             A tuple containing:
                 - The discovered symbolic law as a string (or a failure message).
-                - A dictionary of residual diagnostics (e.g., R-squared, MSE, MAE).
+                - A dictionary of residual diagnostics (e.g. R-squared, MSE, MAE).
         """
         
         np.random.seed(seed)
