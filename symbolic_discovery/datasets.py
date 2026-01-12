@@ -15,7 +15,7 @@ CATALOGUE = {
     # Synthetic Functions
     "S-1": DatasetConfig("S-1", ["x1", "x2"], "y", "x1 + x2", {"x1": (-5, 5), "x2": (-5, 5)}),
     "S-2": DatasetConfig("S-2", ["x1", "x2"], "y", "x1 * x2", {"x1": (1, 5), "x2": (1, 5)}),
-    "S-3": DatasetConfig("S-3", ["x1"], "y", "2 * x1 + 1", {"x1": (-5, 5)}),
+    "S-3": DatasetConfig("S-3", ["x1", "x2"], "y", "x1 / (x2 + 1)", {"x1": (1, 10), "x2": (1, 10)}),
     "S-4": DatasetConfig("S-4", ["x1", "x2"], "y", "x1**2 + x2**2", {"x1": (-3, 3), "x2": (-3, 3)}),
     
     # Textbook Laws
