@@ -22,7 +22,8 @@ class BACON3:
                  constancy_threshold: float = 0.05,
                  monotonicity_threshold: float = 0.98,
                  r2_threshold: float = 0.99,
-                 max_depth: int = 3):
+                 max_depth: int = 3,
+                 verbose: bool = False):
         """
         Initialises the BACON.3 solver.
         """
@@ -30,6 +31,7 @@ class BACON3:
         self.monotonicity_threshold = monotonicity_threshold
         self.r2_threshold = r2_threshold
         self.max_depth = max_depth
+        self.verbose = verbose
         
         # Internal states
         self.logs: list[str] = []
@@ -46,7 +48,8 @@ class BACON3:
         Logs a decision or step, creating a human-readable trace.
         """
         self.logs.append(message)
-        print(message) 
+        if self.verbose:
+            print(message) 
 
     def _check_constancy(self, v: Variable) -> bool:
         """
