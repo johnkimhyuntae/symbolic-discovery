@@ -6,6 +6,8 @@ from itertools import combinations
 from sympy import Symbol, Expr, symbols
 from scipy.stats import spearmanr, iqr
 
+from .utils import fit_linear_model
+
 @dataclass
 class Variable:
     """
@@ -168,31 +170,10 @@ class BACON3:
                 continue
             
             x_values = np.asarray(v.values)
-            a = 0.0
-            b = 0.0
-            try:
-                # 1. Fit a Line (y = ax + b)
-                coeffs = np.polyfit(x_values, y_true, 1)
-                a, b = coeffs
-                
-                # 2. Get Predictions
-                y_pred = (a * x_values) + b
-                
-                # 3. Calculate Residual Diagnostics
-                ss_total = np.sum((y_true - y_mean) ** 2)
-                ss_residual = np.sum((y_true - y_pred) ** 2)
-                
-                if ss_total == 0:
-                    r2 = 1.0 if ss_residual == 0 else 0.0
-                else:
-                    r2 = 1 - (ss_residual / ss_total)
-                
-                mse = np.mean((y_true - y_pred)**2)
-                mae = np.mean(np.abs(y_true - y_pred))
-                    
-            except (np.linalg.LinAlgError, ValueError):
-                # Fit failed
-                r2, mse, mae = -np.inf, np.inf, np.inf
+            a, b, diagnostics = fit_linear_model(x_values, y_true)
+            r2 = diagnostics["R-squared"]
+            mse = diagnostics["MSE"]
+            mae = diagnostics["MAE"]
             
             self._log(f"  Testing closing relation: {str(self.target_var.symbol)} ~ {str(v.symbol)}. R-squared: {r2:.6f}")
 
@@ -201,11 +182,7 @@ class BACON3:
                 best_r2 = r2
                 best_fit_symbol = v.symbol
                 best_coeffs = (a, b)
-                best_diagnostics = {
-                    "R-squared": r2,
-                    "MSE": mse,
-                    "MAE": mae
-                }
+                best_diagnostics = diagnostics
         
         # 5. Return the equation string and the diagnostics dict
         if best_fit_symbol:
