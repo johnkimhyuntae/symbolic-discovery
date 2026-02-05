@@ -51,7 +51,10 @@ class BACON3:
         """
         self.logs.append(message)
         if self.verbose:
-            print(message) 
+            if message:
+                print(f"[BACON.3] {message}")
+            else:
+                print("")
 
     def _check_constancy(self, v: Variable) -> bool:
         """
@@ -187,7 +190,17 @@ class BACON3:
         # 5. Return the equation string and the diagnostics dict
         if best_fit_symbol:
             a, b = best_coeffs
-            equation_string = f"{str(self.target_var.symbol)} = {a:.4f} * ({str(best_fit_symbol)}) + {b:.4f}"
+            # Use significant-figure formatting so small physical constants
+            # (e.g. 5.67e-8 in Stefan–Boltzmann) don't round to 0.0000.
+            if abs(a) < 1e-12:
+                a = 0.0
+            if abs(b) < 1e-12:
+                b = 0.0
+
+            a_str = f"{a:.4g}"
+            b_abs_str = f"{abs(b):.4g}"
+            sign = "+" if b >= 0 else "-"
+            equation_string = f"{str(self.target_var.symbol)} = {a_str} * ({str(best_fit_symbol)}) {sign} {b_abs_str}"
             return equation_string, best_diagnostics
         
         # No fit found
@@ -217,20 +230,20 @@ class BACON3:
         self._initialise_variables(data, target_col)
         
         if self.target_var is None:
-            self._log("Error: Target variable not found.")
+            self._log("Stop: target variable not found")
             return None, {}
 
-        self._log(f"\nStarting discovery. Target: '{str(self.target_var.symbol)}'. Seed: {seed}")
+        self._log(f"Starting discovery. Target: '{str(self.target_var.symbol)}'. Seed: {seed}. Shape: {data.shape}")
 
         # main loop
         for i in range(self.max_depth):
-            self._log(f"\n--- Layer {i+1} ---")
+            self._log(f"--- Layer {i+1} ---")
             
             vars_to_combine = self.variable_pool 
             
             new_composites = self._generate_composites(vars_to_combine)
             if not new_composites:
-                self._log("No new composites generated. Stopping.")
+                self._log("Stop: no new composites generated")
                 break
             
             promoted_this_layer: list[Variable] = []
@@ -238,22 +251,22 @@ class BACON3:
             for composite in new_composites:
                 
                 if self._check_constancy(composite):
-                    self._log(f"  -> Cue Hit (Constancy): {str(composite.symbol)} is near-constant. Promoting.")
+                    self._log(f"  -> Cue hit (Constancy): {str(composite.symbol)} is near-constant; promote")
                     promoted_this_layer.append(composite)
                     continue
                 
                 if self._check_monotonicity(composite):
-                    self._log(f"  -> Cue Hit (Monotonicity): {str(composite.symbol)} is monotonic with {self.target_var.symbol}. Promoting.")
+                    self._log(f"  -> Cue hit (Monotonicity): {str(composite.symbol)} is monotonic with {self.target_var.symbol}; promote")
                     promoted_this_layer.append(composite)
 
             if not promoted_this_layer:
-                self._log("No candidates met cues. Stopping.")
+                self._log("Stop: no candidates met cues")
                 break 
             
             self.variable_pool.extend(promoted_this_layer)
             self._log(f"Layer {i+1} complete. Promoted: {[str(v.symbol) for v in promoted_this_layer]}")
         
-        self._log("\n--- Finding Closing Relation ---")
+        self._log("--- Finding closing relation ---")
         
         # This will hold the {R2, MSE, MAE} dict
         self.final_diagnostics: dict[str, float] = {} 
@@ -264,11 +277,11 @@ class BACON3:
         if fit_results:
             # Unpack the tuple here
             self.final_equation, self.final_diagnostics = fit_results
-            self._log(f"Success! Found relation: {self.final_equation}")
+            self._log(f"Success: equation: {self.final_equation}")
             self._log(f"Diagnostics: {self.final_diagnostics}")
         else:
             self.final_equation = "Failed to find a simple closing relation."
-            self._log(self.final_equation)
+            self._log(f"Failed: {self.final_equation}")
         
         # Return both the equation and its diagnostics
         return self.final_equation, self.final_diagnostics
