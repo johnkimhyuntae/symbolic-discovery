@@ -6,3 +6,26 @@ build-backend = "setuptools.build_meta"
 name = "symbolic-discovery"
 version = "0.1.0"
 requires-python = ">=3.9"
+
+description = "Symbolic discovery experiments (BACON.3/BACON.7) with datasets and experiment runner."
+readme = "README.md"
+
+dependencies = [
+	"numpy>=1.23",
+	"pandas>=1.5",
+	"scipy>=1.9",
+	"sympy>=1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=8",
+]
+
+[project.scripts]
+symbolic-discovery = "symbolic_discovery.cli:main"
+
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["symbolic_discovery*"]
