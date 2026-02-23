@@ -1,13 +1,21 @@
 import pytest
-from symbolic_discovery.bacon3 import BACON3
-from symbolic_discovery.datasets import DatasetGenerator, CATALOGUE
+from symbolic_discovery.algorithms.bacon3 import BACON3
+from symbolic_discovery.data.catalogue import CATALOGUE
+from symbolic_discovery.data.synthetic import DatasetGenerator
+
+
+def is_failure_equation(equation: str) -> bool:
+    if not equation:
+        return True
+    # Keep compatible with both older and newer failure strings.
+    return ("No law found" in equation) or ("Failed" in equation) or (equation.strip() == "Error")
 
 def is_term_present(equation: str, expected_term: str) -> bool:
     """
     Checks if the core algebraic term exists in the discovered equation.
     Ignores whitespace and multiplication symbols for robust matching.
     """
-    if not equation or "Failed" in equation:
+    if is_failure_equation(equation):
         return False
         
     eq_clean = equation.replace(" ", "")
@@ -76,7 +84,7 @@ def test_baseline_exactness(generator, dataset_id, expected_term):
     # 3. Validation
     # Basic success checks
     assert equation is not None, f"BACON failed to return an equation for {dataset_id}"
-    assert "Failed" not in equation, f"BACON returned failure status for {dataset_id}"
+    assert not is_failure_equation(equation), f"BACON returned failure status for {dataset_id}: {equation}"
     
     # R-squared check (Strict for clean data)
     r2 = diagnostics.get("R-squared", 0.0)
@@ -95,7 +103,7 @@ def test_bacon3_expected_failures_clean(generator, dataset_id):
     equation, _ = solver.discover(train_df, target_col=CATALOGUE[dataset_id].target)
 
     assert equation is not None
-    assert "Failed" in equation
+    assert is_failure_equation(equation)
 
 # --- 2. The Stress Test (Noisy Data) ---
 @pytest.mark.parametrize("dataset_id", ["T-1", "T-3", "S-2"])
@@ -114,7 +122,7 @@ def test_noise_sensitivity(generator, dataset_id):
     print(f"\n{'='*60}")
     print(f"[Noisy 5%] {dataset_id}")
     print(f"Discovered: {equation}")
-    if equation and "Failed" not in equation:
+    if equation and (not is_failure_equation(equation)):
         r2 = diagnostics.get("R-squared", 0.0)
         print(f"Survived with R²: {r2:.4f}")
     else:
