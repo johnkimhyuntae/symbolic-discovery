@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from sympy import Symbol, Expr, symbols
 from typing import List, Tuple, Optional, Dict
 
-from .utils import evaluate_equation_constancy, calculate_r2, fit_linear_model
+from pandas.api.types import is_numeric_dtype
+from scipy.stats import iqr
+
+from ..utils import evaluate_equation_constancy, calculate_r2, fit_linear_model
 
 @dataclass
 class Variable:
@@ -16,6 +19,13 @@ class Variable:
     values: np.ndarray
     # Track which independent variables this term still depends on
     dependencies: List[str] 
+
+    # The variable "consumed" to form this term (set during search)
+    consumed_var: Optional[str] = None
+
+    def __post_init__(self):
+        self.values = np.asarray(self.values)
+        self.dependencies = list(self.dependencies) if self.dependencies is not None else []
 
     def __repr__(self):
         return str(self.symbol)
@@ -42,51 +52,48 @@ class BACON1:
         # Avoid division by zero issues in heuristic checks
         safe_x = np.where(np.abs(x) < 1e-9, 1e-9, x)
 
-        # 1. Linear Proportionality Check (Miller, 2024)
+        # Robust scale for intercept checks.
+        y_scale = float(np.max(np.mean(y))) if y.size else 1.0
+
+        # Prevent division by zero
+        if y_scale < 1e-9:
+            y_scale = 1e-9
+
         # Calculate correlation coefficient r
-        # We check both Y vs X and Y vs 1/X (inverse) to catch simple products/ratios quickly
-        
+
         m, c, diagnostics = fit_linear_model(x, y)
         r2 = float(diagnostics.get("R-squared", 0.0))
         # BACON.1 uses the sign of the slope to pick the sign of the correlation.
         r = float(np.sign(m) * np.sqrt(max(r2, 0.0)))
 
-        # Check linearity condition: 1 - |r| < epsilon (Miller, 2024)
+        # Check linearity condition: 1 - |r| < epsilon
         if (1 - abs(r)) < self.epsilon:
-            # (m, c) already computed via shared helper
-            
-            # Check if intercept is effectively zero (Miller, 2024)
-            # If |c / mean(y)| < c_val, treat as zero
-            if abs(c / (np.mean(y) + 1e-9)) < self.c_val:
+            # If |c / scale(y)| < c_val, treat as zero
+            if abs(c / y_scale) < self.c_val:
                 # Intercept is zero: y = mx
                 # If m > 0, Ratio is constant: y/x = m
                 # If m < 0, Product might be relevant, but linear logic suggests y - mx = 0
-                term = dependent.symbol / independent.symbol
+                term = dependent.symbol / independent.symbol  # type: ignore[operator]
                 vals = y / safe_x
                 candidates.append(Variable(term, vals, dependent.dependencies))
             else:
                 # Intercept is non-zero: y - mx = c
                 # Invariant is y - mx
                 m_sym = float(f"{m:.4g}") # distinct constant
-                term = dependent.symbol - m_sym * independent.symbol
+                term = dependent.symbol - m_sym * independent.symbol  # type: ignore[operator]
                 vals = y - m * x
                 candidates.append(Variable(term, vals, dependent.dependencies))
 
-        # 2. Product / Ratio Checks (Monotonicity) (Miller, 2024)
+        # Product / Ratio Checks (Monotonicity)
         # If not strictly linear, we check general increasing/decreasing trends
-        # r > 0 -> Divide (Ratio)
-        # r < 0 -> Multiply (Product)
-        
-        # We add these candidates regardless of strict linearity to allow BACON.3 
-        # to layer them (e.g. creating PV to later find PV/T).
         
         # Product (X * Y)
-        prod_term = dependent.symbol * independent.symbol
+        prod_term = dependent.symbol * independent.symbol  # type: ignore[operator]
         prod_vals = y * x
         candidates.append(Variable(prod_term, prod_vals, dependent.dependencies))
 
         # Ratio (Y / X)
-        div_term = dependent.symbol / independent.symbol
+        div_term = dependent.symbol / independent.symbol  # type: ignore[operator]
         div_vals = y / safe_x
         candidates.append(Variable(div_term, div_vals, dependent.dependencies))
         
@@ -125,20 +132,34 @@ class BACON7:
     def _is_sufficiently_constant(self, var: Variable) -> Optional[float]:
         """
         Check if a variable is constant within threshold Delta (Miller, 2024).
-        Equation (12): mean(1-D) < val < mean(1+D) for (1-D) proportion of data.
+        mean(1-D) < val < mean(1+D) for (1-D) proportion of data.
         """
-        mean_val = np.mean(var.values)
-        if abs(mean_val) < 1e-9: return None # Safety
+        # Use the same robust constancy scoring as BACON.3:
+        #   robust_cv = IQR(values) / |median(values)|
+        # This is less brittle when the mean is near 0 or when there are outliers.
+        vals = np.asarray(var.values)
+        mean_val = float(np.mean(vals))
         
-        # Relaxed check: coeff of variation
-        std_val = np.std(var.values)
-        cov = std_val / abs(mean_val)
-        
-        if cov < self.delta:
-            return float(mean_val)
+        # Handle edge case where mean is extremely close to zero to prevent extreme bounds
+        if abs(mean_val) < 1e-9:
+            return None
+
+        bound_1 = mean_val * (1 - self.delta)
+        bound_2 = mean_val * (1 + self.delta)
+        lower_bound = min(bound_1, bound_2)
+        upper_bound = max(bound_1, bound_2)
+
+        # Count how many values fall strictly within the bounds
+        within_bounds = np.sum((vals > lower_bound) & (vals < upper_bound))
+        proportion = float(within_bounds) / len(vals)
+
+        # Check if the proportion meets the (1 - Delta) threshold
+        if proportion >= (1 - self.delta):
+            return mean_val
+            
         return None
 
-    def _layer_method_min_mse(self, candidates: List[Variable]) -> Variable:
+    def _layer_method_min_mse(self, candidates: List[Variable]) -> Optional[Variable]:
         """
         Implements the 'min_mse' layer selection method.
         Selects the candidate that creates the 'cleanest' variable (lowest variance/MSE relative to mean).
@@ -162,12 +183,14 @@ class BACON7:
                 
         return best_cand
 
-    def _average_and_reduce(self, 
-                          current_dependent: Variable, 
-                          consumed_independent: str, 
-                          full_df: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
+    def _average_and_reduce(
+        self,
+        current_dependent: Variable,
+        consumed_independent: str | List[str],
+        full_df: pd.DataFrame,
+    ) -> Tuple[np.ndarray, pd.DataFrame]:
         """
-        The critical BACON.7 averaging step.
+        The BACON.7 averaging step.
         1. Takes the calculated values of the new invariant.
         2. Groups the original dataframe by ALL remaining independent variables.
         3. Averages the invariant values within those groups.
@@ -177,20 +200,27 @@ class BACON7:
         temp_df = full_df.copy()
         temp_df['__calculated__'] = current_dependent.values
         
-        # Grouping keys are all columns except the one we just 'consumed' into the invariant
-        group_keys = [c for c in full_df.columns if c != consumed_independent]
+        # Grouping keys are all columns except the ones we just 'consumed' into the invariant.
+        # Important: when we expand features (x, x², x³), consuming any member of that family
+        # must exclude the entire family from grouping; otherwise averaging can't reduce.
+        if isinstance(consumed_independent, str):
+            consumed_set = {consumed_independent}
+        else:
+            consumed_set = set(consumed_independent)
+
+        group_keys = [c for c in full_df.columns if c not in consumed_set]
         
         if not group_keys:
             # If no variables left, we just average everything to a single point
             return np.array([np.mean(temp_df['__calculated__'])]), pd.DataFrame()
 
-        # Group and mean (Miller, 2024)
+        # Group and mean
         reduced_df = temp_df.groupby(group_keys)['__calculated__'].mean().reset_index()
         
         # The new values for the next layer
-        new_values = reduced_df['__calculated__'].values
+        new_values = np.asarray(reduced_df['__calculated__'].values)
         
-        # The new dataframe (smaller N)
+        # The new dataframe
         return new_values, reduced_df[group_keys]
     
     def _calculate_r2(self, equation_str: str, const_val: float, target_name: str) -> Tuple[float, float]:
@@ -286,39 +316,73 @@ class BACON7:
             self._log(f"Warning: Could not compute predictive R²: {e}")
             return 0.0
 
-    def fit(self, X: pd.DataFrame, y: pd.Series, seed: Optional[int] = None) -> Tuple[Optional[str], Dict]:
+    def discover(self, df: pd.DataFrame, target_col: str, seed: int = 42) -> Tuple[str, Dict]:
+        """Run BACON.7 discovery on a single dataframe.
+
+        This is the primary public entrypoint used by the experiment runner/tests.
+        It expects the target column to be present in `df`.
+        """
+        np.random.seed(seed)
+
+        if target_col not in df.columns:
+            raise KeyError(f"Target column '{target_col}' not found in dataframe")
+
         self.logs = []
-        target_name = y.name if y.name else "y"
-        
+        target_name = str(target_col)
+
+        y = df[target_col]
+        X = df.drop(columns=[target_col])
+
         # Store original data for R² calculation
         self.original_X = X.copy()
-        self.original_y = y.values.copy()
-        
+        self.original_y = np.asarray(y.to_numpy(copy=True))
+
         # We keep track of the full dataframe to perform averaging
         current_df = X.copy()
         current_vars = list(X.columns)
+
+        # In multivariate problems, expanded features (x, x², x³) must be treated as a family
+        # when averaging; otherwise reduction is blocked. In univariate problems, consuming the
+        # whole family prevents iterative discovery (e.g., building T*T³).
+        consume_expansion_families = len(current_vars) > 1
         
         # The "Dependent" variable evolves through the layers
-        current_term = Variable(Symbol(target_name), y.values, current_vars)
+        current_term = Variable(Symbol(target_name), np.asarray(y.to_numpy(copy=True)), current_vars)
 
-        seed_str = f"{seed}" if seed is not None else "(unknown)"
-        self._log(f"Starting discovery. Target: '{target_name}'. Seed: {seed_str}. Shape: {current_df.shape}")
+        self._log(f"Starting discovery. Target: '{target_name}'. Seed: {seed}. Shape: {current_df.shape}")
         
-        # Pre-generate polynomial powers for single-variable problems (T², T³, etc.)
-        # Only generate for univariate problems to avoid combinatorial explosion
-        if len(current_vars) == 1:
-            var_name = current_vars[0]
-            # Add squared term
+        # Feature expansion (Miller §3.3.1): precompute powers so a variable can be
+        # effectively "consumed" via its power term in a single step after averaging.
+        # We do this for ALL numeric variables (not just univariate problems).
+        initial_cols = list(current_df.columns)
+        expansion_families: Dict[str, set[str]] = {}
+
+        def _base_name(col_name: str) -> str:
+            if col_name.endswith('²') or col_name.endswith('³'):
+                return col_name[:-1]
+            return col_name
+
+        def _family_for(col_name: str) -> set[str]:
+            base = _base_name(col_name)
+            return set(expansion_families.get(base, {base}))
+
+        for var_name in initial_cols:
+            if not is_numeric_dtype(current_df[var_name]):
+                continue
+
             sq_name = f"{var_name}²"
-            current_df[sq_name] = current_df[var_name] ** 2
-            current_vars.append(sq_name)
-            self._log(f"Generated power term: {sq_name}")
-            
-            # Add cubed term
+            if sq_name not in current_df.columns:
+                current_df[sq_name] = current_df[var_name] ** 2
+                current_vars.append(sq_name)
+                self._log(f"Generated power term: {sq_name}")
+
             cube_name = f"{var_name}³"
-            current_df[cube_name] = current_df[var_name] ** 3
-            current_vars.append(cube_name)
-            self._log(f"Generated power term: {cube_name}")
+            if cube_name not in current_df.columns:
+                current_df[cube_name] = current_df[var_name] ** 3
+                current_vars.append(cube_name)
+                self._log(f"Generated power term: {cube_name}")
+
+            expansion_families[var_name] = {var_name, sq_name, cube_name}
 
         for layer_idx in range(self.max_depth):
             self._log(f"--- Layer {layer_idx + 1} ---")
@@ -337,21 +401,26 @@ class BACON7:
                 # Check if constancy R² meets threshold
                 if constancy_r2 < self.r2_threshold:
                     self._log(f"  -> Reject: constancy R²={constancy_r2:.4f} < threshold={self.r2_threshold}")
-                    return "No law found", {"r2": constancy_r2, "mse": mse}
+                    return "No law found", {
+                        "R-squared": float(constancy_r2),
+                        "MSE": float(mse),
+                        "constancy_r2": float(constancy_r2),
+                    }
                 
                 # Compute PREDICTIVE R² for fair comparison with BACON.3
                 # This solves the equation for the target variable and computes standard R²
                 predictive_r2 = self._compute_predictive_r2(eq_str, const_val, target_name)
                 
                 self._log(f"  -> Metrics: constancy R²={constancy_r2:.4f}, predictive R²={predictive_r2:.4f}")
-                
-                return eq_str, {
-                    "constant": const_val, 
+
+                diagnostics = {
+                    "R-squared": float(predictive_r2),
+                    "MSE": float(mse),
+                    "constancy_r2": float(constancy_r2),
+                    "constant": float(const_val),
                     "final_term": str(current_term.symbol),
-                    "r2": predictive_r2,  # Use predictive R² for reporting
-                    "constancy_r2": constancy_r2,  # Keep constancy R² for diagnostics
-                    "mse": mse
                 }
+                return eq_str, diagnostics
 
             # 2. Search Space of Laws (Heuristics) (Miller, 2024)
             layer_candidates = []
@@ -365,7 +434,7 @@ class BACON7:
             bacon1 = BACON1(self.epsilon, self.delta, self.c_val)
             
             for indep_name in current_vars:
-                indep_vals = current_df[indep_name].values
+                indep_vals = np.asarray(current_df[indep_name].values)
                 indep_var = Variable(Symbol(indep_name), indep_vals, [])
                 
                 # Get candidates from BACON.1 (products, ratios, linear diffs)
@@ -373,7 +442,7 @@ class BACON7:
                 
                 # Tag which variable was used so we can consume it
                 for cand in new_candidates:
-                    cand.consumed_var = indep_name 
+                    cand.consumed_var = indep_name
                     layer_candidates.append(cand)
 
             if not layer_candidates:
@@ -387,20 +456,28 @@ class BACON7:
                 self._log("Stop: layer method failed to select a term.")
                 break
 
+            # Best term is always tagged with the variable used to create it.
+            assert best_term.consumed_var is not None
+
             self._log(f"  -> Select: {best_term.symbol} (consume: {best_term.consumed_var})")
 
             # 4. Averaging & Reduction 
             # We consume the independent variable used in the relation
             # The dataset shrinks here
+            if consume_expansion_families:
+                consumed_family = sorted(_family_for(best_term.consumed_var))
+            else:
+                consumed_family = [best_term.consumed_var]
             new_vals, new_df = self._average_and_reduce(
                 best_term, 
-                best_term.consumed_var, 
+                consumed_family, 
                 current_df
             )
             
             # Update State for next layer
             current_df = new_df
-            current_vars.remove(best_term.consumed_var)
+            # Remove the whole consumed family from the remaining variables
+            current_vars = [v for v in current_vars if v not in set(consumed_family)]
             
             # Update the dependent variable to be this new term
             current_term = Variable(
@@ -416,24 +493,4 @@ class BACON7:
             self.delta *= self.scale_factor
 
         self._log("Failed: no law found")
-        return None, {}
-    
-    def discover(self, df: pd.DataFrame, target_col: str, seed: int = 42) -> Tuple[Optional[str], Dict]:
-        """
-        Wrapper for fit() to match the interface expected by runner.py.
-        Separates features and target, then calls fit().
-        """
-        np.random.seed(seed)
-        
-        y = df[target_col]
-        X = df.drop(columns=[target_col])
-        
-        eq, details = self.fit(X, y, seed=seed)
-        
-        # Convert keys to match BACON3 format for runner compatibility
-        diagnostics = {
-            "R-squared": details.get("r2", 0.0),
-            "MSE": details.get("mse", float('inf'))
-        }
-        
-        return eq, diagnostics
+        return "No law found", {"R-squared": 0.0, "MSE": float("inf")}

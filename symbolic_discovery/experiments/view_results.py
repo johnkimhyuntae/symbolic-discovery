@@ -1,12 +1,40 @@
 #!/usr/bin/env python3
-"""
-Quick results viewer for runner.py output.
+"""Quick results viewer for experiment runner output CSVs.
+
 Displays a clean summary table of experiment results.
+Compatible with older CSVs (e.g., missing found_eq_raw).
 """
 
 import argparse
 import pandas as pd
 from pathlib import Path
+
+
+def _pick_equation_for_row(row: pd.Series) -> str:
+    """Choose the most informative equation/error string for display."""
+    found_eq = str(row.get('found_eq', '') or '')
+    found_eq_raw = str(row.get('found_eq_raw', '') or '')
+    status = str(row.get('status', '') or '')
+
+    if status != 'Success':
+        # Prefer raw details when the primary field is generic.
+        if found_eq.strip() in {'No law found', 'Error', ''} and found_eq_raw.strip():
+            return found_eq_raw
+        if found_eq_raw.strip() and found_eq_raw.strip() != found_eq.strip():
+            return found_eq_raw
+    return found_eq
+
+
+def _ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize/patch up expected columns for robustness."""
+    df = df.copy()
+    if 'found_eq' not in df.columns and 'equation' in df.columns:
+        df['found_eq'] = df['equation']
+    if 'found_eq' not in df.columns:
+        df['found_eq'] = ''
+    if 'found_eq_raw' not in df.columns:
+        df['found_eq_raw'] = ''
+    return df
 
 def view_results(csv_path: str, mode: str = 'summary'):
     """
@@ -17,23 +45,34 @@ def view_results(csv_path: str, mode: str = 'summary'):
         mode: Display mode - 'summary', 'full', 'compare', 'stats', 'failures', or 'interesting'
     """
     if not Path(csv_path).exists():
-        print(f"❌ File not found: {csv_path}")
+        print(f"File not found: {csv_path}")
         return
     
-    df = pd.read_csv(csv_path)
+    df = _ensure_columns(pd.read_csv(csv_path))
     
     if mode == 'summary':
         # Clean, compact summary
         print(f"\n{'='*80}")
-        print(f"📊 EXPERIMENT RESULTS SUMMARY")
+        print("EXPERIMENT RESULTS SUMMARY")
         print(f"{'='*80}\n")
         
         for _, row in df.iterrows():
-            status_icon = "✓" if row['status'] == "Success" else "✗"
-            eq_clean = row['found_eq'][:50] + "..." if len(row['found_eq']) > 50 else row['found_eq']
+            status_tag = "OK" if row.get('status') == "Success" else "FAIL"
+            eq_display = _pick_equation_for_row(row)
+            eq_clean = eq_display[:50] + "..." if len(eq_display) > 50 else eq_display
             
-            print(f"{status_icon} [{row['method']:6s}] {row['dataset']:4s} (N={row['noise']:.2f}) "
-                  f"→ {eq_clean:40s} R²={row['r2']:.4f} ({row['time_s']:.2f}s)")
+            method = str(row.get('method', ''))
+            dataset = str(row.get('dataset', ''))
+            noise = row.get('noise', 0.0)
+            r2 = row.get('r2', '')
+            time_s = row.get('time_s', '')
+            try:
+                noise_s = f"{float(noise):.2f}"
+            except Exception:
+                noise_s = str(noise)
+
+            print(f"{status_tag:4s} [{method:6s}] {dataset:12s} (N={noise_s}) "
+                  f"-> {eq_clean:40s} R2={r2} ({time_s}s)")
         
         print(f"\n{'='*80}")
         print(f"Total runs: {len(df)} | Success: {(df['status']=='Success').sum()} | "
@@ -43,7 +82,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
     elif mode == 'full':
         # Full details with equations
         print(f"\n{'='*80}")
-        print(f"📋 FULL RESULTS")
+        print("FULL RESULTS")
         print(f"{'='*80}\n")
         
         pd.set_option('display.max_columns', None)
@@ -55,7 +94,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
     elif mode == 'compare':
         # Side-by-side comparison of methods on same datasets
         print(f"\n{'='*80}")
-        print(f"⚖️  METHOD COMPARISON")
+        print("METHOD COMPARISON")
         print(f"{'='*80}\n")
         
         if 'dataset' in df.columns and 'method' in df.columns:
@@ -82,7 +121,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
     elif mode == 'stats':
         # Statistical summary
         print(f"\n{'='*80}")
-        print(f"📈 STATISTICAL SUMMARY")
+        print("STATISTICAL SUMMARY")
         print(f"{'='*80}\n")
         
         print("Success Rate by Method:")
@@ -115,7 +154,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
     elif mode == 'failures':
         # Only failures/errors, with full equations
         print(f"\n{'='*80}")
-        print(f"✗ FAILURES / ERRORS")
+        print("FAILURES / ERRORS")
         print(f"{'='*80}\n")
 
         failed = df[df['status'] != 'Success'].copy()
@@ -123,7 +162,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
             print("(none)")
             return
 
-        cols = [c for c in ['run_id', 'dataset', 'method', 'noise', 'seed', 'found_eq', 'r2', 'time_s', 'status'] if c in failed.columns]
+        cols = [c for c in ['run_id', 'dataset', 'method', 'noise', 'seed', 'found_eq', 'found_eq_raw', 'r2', 'time_s', 'status'] if c in failed.columns]
         failed = failed.sort_values(['dataset', 'method', 'noise', 'seed'])
         pd.set_option('display.max_columns', None)
         pd.set_option('display.max_colwidth', None)
@@ -134,7 +173,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
     elif mode == 'interesting':
         # Failures + low-R² successes (default threshold: < 0.99)
         print(f"\n{'='*80}")
-        print(f"🔎 INTERESTING RUNS (failures + low-R² successes)")
+        print("INTERESTING RUNS (failures + low-R2 successes)")
         print(f"{'='*80}\n")
 
         df_local = df.copy()
@@ -148,7 +187,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
             print("(none)")
             return
 
-        cols = [c for c in ['run_id', 'dataset', 'method', 'noise', 'seed', 'found_eq', 'r2', 'time_s', 'status'] if c in interesting.columns]
+        cols = [c for c in ['run_id', 'dataset', 'method', 'noise', 'seed', 'found_eq', 'found_eq_raw', 'r2', 'time_s', 'status'] if c in interesting.columns]
         interesting = interesting.sort_values(['status', 'dataset', 'method', 'noise', 'seed'])
         pd.set_option('display.max_columns', None)
         pd.set_option('display.max_colwidth', None)
@@ -156,18 +195,18 @@ def view_results(csv_path: str, mode: str = 'summary'):
         print(interesting[cols].to_string(index=False))
         print(f"\nFailures: {len(failed)} | Low-R² successes: {len(low_r2)}")
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="View experiment results from runner.py",
+                description="View experiment results from a results CSV",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python view_results.py results.csv                  # Summary view
-  python view_results.py results.csv --mode full      # Full details
-  python view_results.py results.csv --mode compare   # Compare methods
-  python view_results.py results.csv --mode stats     # Statistical summary
-    python view_results.py results.csv --mode failures  # Show failures/errors only
-    python view_results.py results.csv --mode interesting  # Failures + low-R² successes
+    symbolic-discovery view results.csv                    # Summary view
+    symbolic-discovery view results.csv --mode full        # Full details
+    symbolic-discovery view results.csv --mode compare     # Compare methods
+    symbolic-discovery view results.csv --mode stats       # Statistical summary
+    symbolic-discovery view results.csv --mode failures    # Show failures/errors only
+    symbolic-discovery view results.csv --mode interesting # Failures + low-R² successes
         """
     )
     
@@ -177,7 +216,7 @@ Examples:
                        default='summary',
                        help='Display mode (default: summary)')
     
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     view_results(args.csv_file, args.mode)
 
 if __name__ == "__main__":

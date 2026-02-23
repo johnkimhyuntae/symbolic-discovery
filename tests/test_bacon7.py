@@ -1,6 +1,7 @@
 import pytest
-from symbolic_discovery.bacon7 import BACON7
-from symbolic_discovery.datasets import DatasetGenerator, CATALOGUE
+from symbolic_discovery.algorithms.bacon7 import BACON7
+from symbolic_discovery.data.catalogue import CATALOGUE
+from symbolic_discovery.data.synthetic import DatasetGenerator
 
 def is_term_present(equation: str, expected_term: str) -> bool:
     """

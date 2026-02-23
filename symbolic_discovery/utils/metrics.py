@@ -1,10 +1,21 @@
-"""
-Shared utility functions for BACON algorithms.
-"""
+"""Shared utility functions for BACON algorithms."""
 
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Tuple
+
+
+# NumPy's RankWarning location differs by version.
+# - NumPy 1.x: numpy.RankWarning
+# - NumPy 2.x: numpy.polynomial.polyutils.RankWarning
+try:
+    from numpy.polynomial.polyutils import RankWarning as _NpRankWarning  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        from numpy import RankWarning as _NpRankWarning  # type: ignore
+    except Exception:  # pragma: no cover
+        _NpRankWarning = None  # type: ignore
 
 
 def calculate_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -18,7 +29,10 @@ def calculate_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Returns:
         R² value between 0 and 1 (can be negative for very poor fits)
     """
-    y_mean = np.mean(y_true)
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    y_mean = float(np.mean(y_true))
     ss_total = np.sum((y_true - y_mean) ** 2)
     ss_residual = np.sum((y_true - y_pred) ** 2)
     
@@ -26,7 +40,7 @@ def calculate_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         return 1.0 if ss_residual == 0 else 0.0
     
     r2 = 1 - (ss_residual / ss_total)
-    return r2
+    return float(r2)
 
 
 def calculate_mse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -40,7 +54,9 @@ def calculate_mse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Returns:
         MSE value
     """
-    return np.mean((y_true - y_pred) ** 2)
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return float(np.mean((y_true - y_pred) ** 2))
 
 
 def calculate_mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -54,7 +70,9 @@ def calculate_mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     Returns:
         MAE value
     """
-    return np.mean(np.abs(y_true - y_pred))
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    return float(np.mean(np.abs(y_true - y_pred)))
 
 
 def fit_linear_model(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, dict]:
@@ -70,7 +88,12 @@ def fit_linear_model(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, dict]:
     """
     try:
         # Fit line: y = ax + b
-        coeffs = np.polyfit(x, y, 1)
+        x = np.asarray(x)
+        y = np.asarray(y)
+        with warnings.catch_warnings():
+            if _NpRankWarning is not None:
+                warnings.simplefilter("ignore", _NpRankWarning)
+            coeffs = np.polyfit(x, y, 1)
         a, b = coeffs
         
         # Predictions
@@ -129,6 +152,7 @@ def evaluate_equation_constancy(
         
         # Evaluate the LHS expression
         lhs_values = eval_df.eval(lhs_eval)
+        lhs_arr = np.asarray(lhs_values, dtype=float)
         
         # For "LHS = constant" equations, we want to measure how constant LHS actually is
         # Problem: Standard R² doesn't work when const_val = mean(LHS)
@@ -141,8 +165,8 @@ def evaluate_equation_constancy(
         # CV = 0.05 (5% variation) → R² = 0.9975
         # CV = 0.10 (10% variation) → R² = 0.99
         
-        mean_lhs = np.mean(lhs_values)
-        std_lhs = np.std(lhs_values)
+        mean_lhs = float(np.mean(lhs_arr))
+        std_lhs = float(np.std(lhs_arr))
         
         if abs(mean_lhs) < 1e-10:
             # LHS is ~0, check if std is also ~0 (perfectly zero)
@@ -155,9 +179,10 @@ def evaluate_equation_constancy(
             # - CV > 1 → R² negative (very poor), clamp to 0
             r2 = max(0.0, 1 - cv**2)
         
-        mse = np.mean((lhs_values - const_val) ** 2)
+        mse = float(np.mean((lhs_arr - float(const_val)) ** 2))
         
-        return r2, mse
+        return float(r2), mse
         
     except Exception:
-        return 1.0, 0.0
+        # If we can't evaluate the expression, treat as non-constant.
+        return 0.0, float('inf')

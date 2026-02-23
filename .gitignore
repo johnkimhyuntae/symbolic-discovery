@@ -1,11 +1,29 @@
-# Python virtual environment
+# Python envs
 venv/
+.venv/
 
-# Pytest cache
+# Python caches / bytecode
+__pycache__/
+*.py[cod]
+
+# Test artifacts
 .pytest_cache/
 
-# Python compiled bytecode
-__pycache__/
-
-# Python build artifacts
+# Packaging / build artifacts
 *.egg-info/
+build/
+dist/
+
+# OS / editor junk
+.DS_Store
+.vscode/
+
+# Local datasets
+/feynman/
+/data/
+
+# Local results / reruns (large, machine-specific)
+/results/
+
+# temporary experiment scripts
+/scripts/
