@@ -6,7 +6,7 @@ from itertools import combinations
 from sympy import Symbol, Expr, symbols
 from scipy.stats import spearmanr, iqr
 
-from .utils import fit_linear_model
+from ..utils import fit_linear_model
 
 @dataclass
 class Variable:
@@ -18,6 +18,9 @@ class Variable:
     symbol: Expr    
     # values may come from pandas or numpy arrays; accept either
     values: np.ndarray
+
+    def __post_init__(self):
+        self.values = np.asarray(self.values)
 
 class BACON3:
     def __init__(self, 
@@ -97,7 +100,6 @@ class BACON3:
         new_composites: list[Variable] = []
 
         # Powers
-        # Required for T-3 (t^2) and S-4 (x^2)
         for v in variables:
             # Square
             square_symbol = v.symbol ** 2
@@ -146,10 +148,14 @@ class BACON3:
             self.symbol_map[col] = sym
             col_values = np.asarray(data[col].values)
             var = Variable(sym, col_values)
+            if col == target_col:
+                # Target is tracked separately and must not participate in composite generation;
+                # otherwise BACON.3 can generate self-referential closures involving y.
+                self.target_var = var
+                continue
+
             self.variable_pool.append(var)
             self.known_symbols.add(str(sym))
-            if col == target_col:
-                self.target_var = var
 
     def _find_closing_relation(self) -> tuple[str, dict[str, float]] | None:
         """
@@ -180,18 +186,15 @@ class BACON3:
             
             self._log(f"  Testing closing relation: {str(self.target_var.symbol)} ~ {str(v.symbol)}. R-squared: {r2:.6f}")
 
-            # 4. Check if this is the best, near-perfect fit
+            # Check if this is the best, near-perfect fit
             if r2 > self.r2_threshold and r2 > best_r2: 
                 best_r2 = r2
                 best_fit_symbol = v.symbol
                 best_coeffs = (a, b)
                 best_diagnostics = diagnostics
         
-        # 5. Return the equation string and the diagnostics dict
         if best_fit_symbol:
             a, b = best_coeffs
-            # Use significant-figure formatting so small physical constants
-            # (e.g. 5.67e-8 in Stefan–Boltzmann) don't round to 0.0000.
             if abs(a) < 1e-12:
                 a = 0.0
             if abs(b) < 1e-12:
@@ -206,7 +209,7 @@ class BACON3:
         # No fit found
         return None
 
-    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str | None, dict[str, float]]:
+    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str, dict[str, float]]:
         """
         Runs the main BACON.3 passes.
         
@@ -231,7 +234,7 @@ class BACON3:
         
         if self.target_var is None:
             self._log("Stop: target variable not found")
-            return None, {}
+            return "No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")}
 
         self._log(f"Starting discovery. Target: '{str(self.target_var.symbol)}'. Seed: {seed}. Shape: {data.shape}")
 
@@ -280,8 +283,9 @@ class BACON3:
             self._log(f"Success: equation: {self.final_equation}")
             self._log(f"Diagnostics: {self.final_diagnostics}")
         else:
-            self.final_equation = "Failed to find a simple closing relation."
+            self.final_equation = "No law found"
             self._log(f"Failed: {self.final_equation}")
+            self.final_diagnostics = {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")}
         
         # Return both the equation and its diagnostics
         return self.final_equation, self.final_diagnostics
