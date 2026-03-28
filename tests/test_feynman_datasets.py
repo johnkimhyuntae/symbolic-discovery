@@ -6,8 +6,8 @@ import re
 import pandas as pd
 import pytest
 
-from symbolic_discovery.algorithms.bacon3 import BACON3
-from symbolic_discovery.algorithms.bacon7 import BACON7
+from symbolic_discovery._core.bacon3 import BACON3
+from symbolic_discovery._core.bacon7 import BACON7
 
 
 ROOT = Path(__file__).resolve().parents[1] / "feynman"

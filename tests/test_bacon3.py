@@ -1,5 +1,5 @@
 import pytest
-from symbolic_discovery.algorithms.bacon3 import BACON3
+from symbolic_discovery._core.bacon3 import BACON3
 from symbolic_discovery.data.catalogue import CATALOGUE
 from symbolic_discovery.data.synthetic import DatasetGenerator
 
@@ -41,11 +41,7 @@ def generator():
 # This tests Success Criterion 1: Exact recovery on clean benchmarks.
 @pytest.mark.parametrize("dataset_id, expected_term", [
     # Synthetic Functions
-    pytest.param(
-        "S-1",
-        "x1+x2",
-        marks=pytest.mark.xfail(reason="Additive laws are a structural limitation for BACON-style multiplicative search."),
-    ),
+    ("S-1", "x1+x2"),
     ("S-2", "x1*x2"),       # y = x1 * x2
     pytest.param(
         "S-3",
