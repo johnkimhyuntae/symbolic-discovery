@@ -109,6 +109,26 @@ class BACON3:
                 self.known_symbols.add(str(square_symbol))
 
         for v1, v2 in combinations(variables, 2):
+            # Sum
+            sum_symbol = v1.symbol + v2.symbol  # type: ignore[operator]
+            if str(sum_symbol) not in self.known_symbols:
+                sum_values = v1.values + v2.values
+                new_composites.append(Variable(symbol=sum_symbol, values=sum_values))
+                self.known_symbols.add(str(sum_symbol))
+
+            # Differences
+            diff1_symbol = v1.symbol - v2.symbol  # type: ignore[operator]
+            if str(diff1_symbol) not in self.known_symbols:
+                diff1_values = v1.values - v2.values
+                new_composites.append(Variable(symbol=diff1_symbol, values=diff1_values))
+                self.known_symbols.add(str(diff1_symbol))
+
+            diff2_symbol = v2.symbol - v1.symbol  # type: ignore[operator]
+            if str(diff2_symbol) not in self.known_symbols:
+                diff2_values = v2.values - v1.values
+                new_composites.append(Variable(symbol=diff2_symbol, values=diff2_values))
+                self.known_symbols.add(str(diff2_symbol))
+
             # Product
             prod_symbol = v1.symbol * v2.symbol # type: ignore
             if str(prod_symbol) not in self.known_symbols:

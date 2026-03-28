@@ -1,5 +1,5 @@
 import pytest
-from symbolic_discovery.algorithms.bacon7 import BACON7
+from symbolic_discovery._core.bacon7 import BACON7
 from symbolic_discovery.data.catalogue import CATALOGUE
 from symbolic_discovery.data.synthetic import DatasetGenerator
 
