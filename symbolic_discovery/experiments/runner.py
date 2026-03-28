@@ -5,13 +5,7 @@ import os
 import pandas as pd
 import numpy as np
 import re
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, List, Optional
-
-# Import your modules
-from symbolic_discovery.algorithms.bacon3 import BACON3
-from symbolic_discovery.algorithms.bacon7 import BACON7
+from typing import List, Optional
 from symbolic_discovery.data.benchmarks import (
     get_benchmark_config,
     list_benchmark_equations,
@@ -20,128 +14,7 @@ from symbolic_discovery.data.benchmarks import (
 )
 from symbolic_discovery.data.catalogue import CATALOGUE, DatasetConfig
 from symbolic_discovery.data.synthetic import DatasetGenerator, split_train_test
-
-# Standardised Result Interface
-@dataclass
-class SolverResult:
-    equation: str
-    raw_equation: str
-    train_r2: float
-    mse: float
-    time_sec: float
-    status: str
-
-class BaseSolver(ABC):
-    @abstractmethod
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
-        pass
-
-class Bacon3Wrapper(BaseSolver):
-    def __init__(self, noise_level: float = 0.0, **kwargs):
-        # Dynamic strictness based on noise
-        self.r2_threshold = 0.98 if noise_level == 0.0 else 0.90
-        self.max_depth = kwargs.get('max_depth', 3)
-        self.verbose = kwargs.get('verbose', False)
-
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
-        start_time = time.time()
-        # Instantiate solver for this specific run
-        model = BACON3(r2_threshold=self.r2_threshold, max_depth=self.max_depth, verbose=self.verbose)
-        
-        try:
-            # BACON3 returns (equation, diagnostics)
-            eq, diagnostics = model.discover(train_df, target_col, seed=seed)
-            duration = time.time() - start_time
-            
-            # Check for failure
-            raw_eq = eq or ""
-            if (not raw_eq) or ("No law found" in raw_eq) or ("Failed" in raw_eq):
-                return SolverResult(
-                    equation="No law found",
-                    raw_equation=raw_eq or "No law found",
-                    train_r2=0.0,
-                    mse=float('inf'),
-                    time_sec=duration,
-                    status="Failed",
-                )
-                
-            return SolverResult(
-                equation=raw_eq,
-                raw_equation=raw_eq,
-                train_r2=diagnostics.get("R-squared", 0.0),
-                mse=diagnostics.get("MSE", 0.0),
-                time_sec=duration,
-                status="Success"
-            )
-        except Exception as e:
-            return SolverResult(
-                equation="Error",
-                raw_equation=f"Error: {e}",
-                train_r2=0.0,
-                mse=float('inf'),
-                time_sec=time.time() - start_time,
-                status="Error",
-            )
-
-class Bacon7Wrapper(BaseSolver):
-    def __init__(self, noise_level: float = 0.0, **kwargs):
-        # BACON7 has its own parameter relaxation system
-        self.initial_epsilon = 0.05 if noise_level == 0.0 else 0.10
-        self.initial_delta = 0.05 if noise_level == 0.0 else 0.10
-        self.r2_threshold = 0.98 if noise_level == 0.0 else 0.90
-        self.max_depth = kwargs.get('max_depth', 4)
-        self.verbose = kwargs.get('verbose', False)
-
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
-        start_time = time.time()
-        # Instantiate solver for this specific run
-        model = BACON7(
-            max_depth=self.max_depth,
-            initial_epsilon=self.initial_epsilon,
-            initial_delta=self.initial_delta,
-            r2_threshold=self.r2_threshold,
-            verbose=self.verbose
-        )
-        
-        try:
-            # BACON7 returns (equation, diagnostics)
-            eq, diagnostics = model.discover(train_df, target_col, seed=seed)
-            duration = time.time() - start_time
-            
-            # Check for failure
-            raw_eq = eq or ""
-            if (not raw_eq) or ("No law found" in raw_eq):
-                return SolverResult(
-                    equation="No law found",
-                    raw_equation=raw_eq or "No law found",
-                    train_r2=0.0,
-                    mse=float('inf'),
-                    time_sec=duration,
-                    status="Failed",
-                )
-                
-            return SolverResult(
-                equation=raw_eq,
-                raw_equation=raw_eq,
-                train_r2=diagnostics.get("R-squared", 0.0),
-                mse=diagnostics.get("MSE", 0.0),
-                time_sec=duration,
-                status="Success"
-            )
-        except Exception as e:
-            return SolverResult(
-                equation="Error",
-                raw_equation=f"Error: {e}",
-                train_r2=0.0,
-                mse=float('inf'),
-                time_sec=time.time() - start_time,
-                status="Error",
-            )
-
-SOLVER_REGISTRY = {
-    "bacon3": Bacon3Wrapper,
-    "bacon7": Bacon7Wrapper, 
-}
+from symbolic_discovery.solvers import SOLVER_REGISTRY
 
 def get_data_config(ds_arg: str, target_arg: Optional[str] = None) -> DatasetConfig:
     """
