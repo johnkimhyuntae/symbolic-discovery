@@ -351,7 +351,7 @@ class BACON7:
 
         self._log(f"Starting discovery. Target: '{target_name}'. Seed: {seed}. Shape: {current_df.shape}")
         
-        # Feature expansion (Miller §3.3.1): precompute powers so a variable can be
+        # Feature expansion (Miller): precompute powers so a variable can be
         # effectively "consumed" via its power term in a single step after averaging.
         # We do this for ALL numeric variables (not just univariate problems).
         initial_cols = list(current_df.columns)
