@@ -125,9 +125,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
         print(f"{'='*80}\n")
         
         print("Success Rate by Method:")
-        success_rate = df.groupby('method').apply(
-            lambda x: (x['status'] == 'Success').sum() / len(x) * 100
-        )
+        success_rate = df['status'].eq('Success').groupby(df['method']).mean() * 100
         for method, rate in success_rate.items():
             print(f"  {method:8s}: {rate:5.1f}%")
         
@@ -143,9 +141,7 @@ def view_results(csv_path: str, mode: str = 'summary'):
         
         print("\nSuccess Rate by Noise Level:")
         if 'noise' in df.columns:
-            noise_success = df.groupby('noise').apply(
-                lambda x: (x['status'] == 'Success').sum() / len(x) * 100
-            )
+            noise_success = df['status'].eq('Success').groupby(df['noise']).mean() * 100
             for noise, rate in noise_success.items():
                 print(f"  {noise:.2f}: {rate:5.1f}%")
         

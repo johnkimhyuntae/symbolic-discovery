@@ -22,8 +22,5 @@ dist/
 /feynman/
 /data/
 
-# Local results / reruns (large, machine-specific)
+# Local results
 /results/
-
-# temporary experiment scripts
-/scripts/
