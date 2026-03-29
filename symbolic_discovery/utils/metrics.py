@@ -1,21 +1,7 @@
 """Shared utility functions for BACON algorithms."""
-
-import warnings
 import numpy as np
 import pandas as pd
 from typing import Tuple
-
-
-# NumPy's RankWarning location differs by version.
-# - NumPy 1.x: numpy.RankWarning
-# - NumPy 2.x: numpy.polynomial.polyutils.RankWarning
-try:
-    from numpy.polynomial.polyutils import RankWarning as _NpRankWarning  # type: ignore
-except Exception:  # pragma: no cover
-    try:
-        from numpy import RankWarning as _NpRankWarning  # type: ignore
-    except Exception:  # pragma: no cover
-        _NpRankWarning = None  # type: ignore
 
 
 def calculate_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -86,39 +72,49 @@ def fit_linear_model(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, dict]:
     Returns:
         Tuple of (a, b, diagnostics_dict) where diagnostics contains R², MSE, MAE
     """
-    try:
-        # Fit line: y = ax + b
-        x = np.asarray(x)
-        y = np.asarray(y)
-        with warnings.catch_warnings():
-            if _NpRankWarning is not None:
-                warnings.simplefilter("ignore", _NpRankWarning)
-            coeffs = np.polyfit(x, y, 1)
-        a, b = coeffs
-        
-        # Predictions
-        y_pred = (a * x) + b
-        
-        # Calculate diagnostics
-        r2 = calculate_r2(y, y_pred)
-        mse = calculate_mse(y, y_pred)
-        mae = calculate_mae(y, y_pred)
-        
-        diagnostics = {
-            "R-squared": r2,
-            "MSE": mse,
-            "MAE": mae
+    # This function is called extremely frequently during BACON search.
+    # Using np.polyfit can emit noisy warnings (and even LAPACK stderr output)
+    # when inputs are degenerate (e.g., constant x, NaN/Inf). A closed-form
+    # OLS fit avoids those issues and is equivalent for degree-1 regression.
+    x_arr = np.asarray(x, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float).ravel()
+
+    if x_arr.size == 0 or y_arr.size == 0 or x_arr.size != y_arr.size:
+        return 0.0, 0.0, {"R-squared": -np.inf, "MSE": np.inf, "MAE": np.inf}
+
+    finite_mask = np.isfinite(x_arr) & np.isfinite(y_arr)
+    x_arr = x_arr[finite_mask]
+    y_arr = y_arr[finite_mask]
+
+    if x_arr.size < 2:
+        b = float(np.mean(y_arr)) if y_arr.size else 0.0
+        y_pred = np.full_like(y_arr, b, dtype=float)
+        return 0.0, b, {
+            "R-squared": calculate_r2(y_arr, y_pred) if y_arr.size else 0.0,
+            "MSE": calculate_mse(y_arr, y_pred) if y_arr.size else np.inf,
+            "MAE": calculate_mae(y_arr, y_pred) if y_arr.size else np.inf,
         }
-        
-        return a, b, diagnostics
-        
-    except (np.linalg.LinAlgError, ValueError):
-        # Fit failed
-        return 0.0, 0.0, {
-            "R-squared": -np.inf,
-            "MSE": np.inf,
-            "MAE": np.inf
-        }
+
+    x_mean = float(np.mean(x_arr))
+    y_mean = float(np.mean(y_arr))
+    x_centered = x_arr - x_mean
+    y_centered = y_arr - y_mean
+
+    denom = float(np.dot(x_centered, x_centered))
+    if abs(denom) < 1e-18:
+        # x is effectively constant; best linear predictor is a constant.
+        a = 0.0
+        b = y_mean
+    else:
+        a = float(np.dot(x_centered, y_centered) / denom)
+        b = float(y_mean - a * x_mean)
+
+    y_pred = (a * x_arr) + b
+    return a, b, {
+        "R-squared": calculate_r2(y_arr, y_pred),
+        "MSE": calculate_mse(y_arr, y_pred),
+        "MAE": calculate_mae(y_arr, y_pred),
+    }
 
 
 def evaluate_equation_constancy(
