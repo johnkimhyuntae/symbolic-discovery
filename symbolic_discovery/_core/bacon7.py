@@ -83,9 +83,6 @@ class BACON1:
                 term = dependent.symbol - m_sym * independent.symbol  # type: ignore[operator]
                 vals = y - m * x
                 candidates.append(Variable(term, vals, dependent.dependencies))
-
-        # Product / Ratio Checks (Monotonicity)
-        # If not strictly linear, we check general increasing/decreasing trends
         
         # Product (X * Y)
         prod_term = dependent.symbol * independent.symbol  # type: ignore[operator]
@@ -98,6 +95,22 @@ class BACON1:
         candidates.append(Variable(div_term, div_vals, dependent.dependencies))
         
         return candidates
+    
+    @staticmethod
+    def filter_novel(candidates: List[Variable],
+                    known_symbols: set) -> List[Variable]:
+        """
+        Novel relation check (Miller, 2024).
+        Reject any candidate whose simplified SymPy expression matches
+        an already-known symbol in the pool.
+        """
+        novel = []
+        for cand in candidates:
+            simplified = str(sympy.simplify(cand.symbol))
+            if simplified in known_symbols:
+                continue
+            novel.append(cand)
+        return novel
 
 class BACON7:
     """
@@ -182,6 +195,53 @@ class BACON7:
                 best_cand = cand
                 
         return best_cand
+    
+    def _layer_method_popular(self, candidates: List[Variable]) -> Optional[Variable]:
+        """
+        Implements the 'popular' layer selection method.
+        Counts which invariant form appears most frequently across independent
+        variables. On a tie, defers to min_mse.
+        """
+        if not candidates:
+            return None
+
+        # Classify each candidate by its structural form.
+        # We use the SymPy expression with numeric coefficients replaced by a
+        # placeholder so that e.g. "V - 0.96*P" and "V - 1.02*P" count as the
+        # same form "V - _c*P".
+
+        def _structural_key(expr: sympy.Expr) -> str:
+            """Replace all pure-numeric atoms with a sentinel so that
+            candidates that differ only in fitted constants hash together."""
+            replaced = expr.xreplace(
+                {a: sympy.Symbol("_c") for a in expr.atoms(sympy.Number)}
+            )
+            return str(replaced)
+
+        key_to_cands: Dict[str, List[Variable]] = {}
+        for cand in candidates:
+            key = _structural_key(cand.symbol)
+            key_to_cands.setdefault(key, []).append(cand)
+
+        # Sort by (descending) popularity
+        ranked = sorted(key_to_cands.items(), key=lambda kv: -len(kv[1]))
+        top_count = len(ranked[0][1])
+
+        # Collect all forms that share the top count
+        tied_cands = []
+        for key, cands in ranked:
+            if len(cands) < top_count:
+                break
+            tied_cands.extend(cands)
+
+        self._log(f"  Popular: top form(s) appeared {top_count}x "
+                f"({len(tied_cands)} candidates in tie)")
+
+        if len(tied_cands) == 1:
+            return tied_cands[0]
+
+        # Tie-break with min_mse
+        return self._layer_method_min_mse(tied_cands)
 
     def _average_and_reduce(
         self,
@@ -278,7 +338,7 @@ class BACON7:
             target_sym = sym_dict[target_name]
             
             # Solve: LHS = const_val for target variable
-            # e.g., V/(I*R) = k  →  V = k*I*R
+            # e.g. V/(I*R) = k -> V = k*I*R
             equation = sympy.Eq(lhs_expr, const_val)
             solutions = sympy.solve(equation, target_sym)
             
@@ -317,7 +377,7 @@ class BACON7:
             return 0.0
 
     def discover(self, df: pd.DataFrame, target_col: str, seed: int = 42) -> Tuple[str, Dict]:
-        """Run BACON.7 discovery on a single dataframe.
+        """Run BACON.7 discovery on a single dataframe (Miller, 2024).
 
         This is the primary public entrypoint used by the experiment runner/tests.
         It expects the target column to be present in `df`.
@@ -387,7 +447,7 @@ class BACON7:
         for layer_idx in range(self.max_depth):
             self._log(f"--- Layer {layer_idx + 1} ---")
             
-            # 1. Constancy Check (Miller, 2024)
+            # 1. Constancy Check
             const_val = self._is_sufficiently_constant(current_term)
             if const_val is not None:
                 self._log(f"  -> Cue hit (Constancy): {current_term.symbol} ≈ {const_val:.4g}")
@@ -422,38 +482,62 @@ class BACON7:
                 }
                 return eq_str, diagnostics
 
-            # 2. Search Space of Laws (Heuristics) (Miller, 2024)
-            layer_candidates = []
-            
-            # We try to relate the current_term to each available independent variable
-            # (In Miller's tree, this is checking branches)
-            if not current_vars:
-                self._log("Stop: no independent variables left to relate.")
-                break
-                
-            bacon1 = BACON1(self.epsilon, self.delta, self.c_val)
-            
-            for indep_name in current_vars:
-                indep_vals = np.asarray(current_df[indep_name].values)
-                indep_var = Variable(Symbol(indep_name), indep_vals, [])
-                
-                # Get candidates from BACON.1 (products, ratios, linear diffs)
-                new_candidates = bacon1.check(current_term, indep_var)
-                
-                # Tag which variable was used so we can consume it
-                for cand in new_candidates:
-                    cand.consumed_var = indep_name
-                    layer_candidates.append(cand)
+            # 2. Search Space of Laws + Managing-layer retry
+            max_retries = 3
+            best_term = None
+            saved_epsilon = self.epsilon
+            saved_delta = self.delta
 
-            if not layer_candidates:
-                self._log("Stop: no valid relations found in this layer.")
-                break
+            for retry in range(max_retries):
+                if retry > 0:
+                    self._log(f"  Retry {retry}/{max_retries-1}: "
+                              f"ε={self.epsilon:.4g}, δ={self.delta:.4g}")
 
-            # 3. Layer Selection (min_mse) 
-            best_term = self._layer_method_min_mse(layer_candidates)
-            
+                layer_candidates = []
+
+                if not current_vars:
+                    self._log("Stop: no independent variables left to relate.")
+                    break
+
+                bacon1 = BACON1(self.epsilon, self.delta, self.c_val)
+
+                for indep_name in current_vars:
+                    indep_vals = np.asarray(current_df[indep_name].values)
+                    indep_var = Variable(Symbol(indep_name), indep_vals, [])
+                    new_candidates = bacon1.check(current_term, indep_var)
+                    for cand in new_candidates:
+                        cand.consumed_var = indep_name
+                        layer_candidates.append(cand)
+
+                # Novel relation filter
+                known_syms = {target_name} | set(current_vars)
+                layer_candidates = BACON1.filter_novel(layer_candidates, known_syms)
+                self._log(f"  After novel-relation filter: {len(layer_candidates)} candidates")
+
+                if not layer_candidates:
+                    # Scale up thresholds and retry
+                    self.epsilon *= self.scale_factor
+                    self.delta *= self.scale_factor
+                    continue
+
+                # Layer selection: popular, then min_mse tiebreak
+                best_term = self._layer_method_popular(layer_candidates)
+                if best_term is None:
+                    best_term = self._layer_method_min_mse(layer_candidates)
+
+                if best_term is not None:
+                    # Restore pre-retry thresholds so the single
+                    # end-of-layer scale-up is the only one that persists.
+                    self.epsilon = saved_epsilon
+                    self.delta = saved_delta
+                    break
+
+                # No term selected — scale up and retry
+                self.epsilon *= self.scale_factor
+                self.delta *= self.scale_factor
+
             if best_term is None:
-                self._log("Stop: layer method failed to select a term.")
+                self._log("Stop: layer method failed after retries.")
                 break
 
             # Best term is always tagged with the variable used to create it.
