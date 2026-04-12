@@ -1,5 +1,4 @@
 import csv
-import time
 import argparse
 import os
 import pandas as pd
@@ -15,6 +14,7 @@ from symbolic_discovery.data.benchmarks import (
 from symbolic_discovery.data.catalogue import CATALOGUE, DatasetConfig
 from symbolic_discovery.data.synthetic import DatasetGenerator, split_train_test
 from symbolic_discovery.solvers import SOLVER_REGISTRY
+
 
 def get_data_config(ds_arg: str, target_arg: Optional[str] = None) -> DatasetConfig:
     """
@@ -126,6 +126,7 @@ def _pretty_equation(eq: str, pretty_map: Optional[dict[str, str]]) -> str:
         out = re.sub(rf"\b{re.escape(k)}\b", v, out)
     return out
 
+
 def run_experiment(args):
     # Expand benchmark selectors into explicit equation IDs.
     expanded_datasets: list[str] = []
@@ -176,7 +177,7 @@ def run_experiment(args):
     args.datasets = expanded_datasets
 
     # Setup Output
-    fieldnames = ["run_id", "dataset", "method", "noise", "seed", "found_eq", "found_eq_raw", "r2", "time_s", "status"]
+    fieldnames = ["run_id", "dataset", "method", "noise", "seed", "equation", "raw_equation", "r2", "mse", "mae", "time_s", "status"]
 
     def _fmt_noise(n: float) -> str:
         s = f"{n:.4f}".rstrip('0').rstrip('.')
@@ -300,9 +301,10 @@ def run_experiment(args):
                         # 2. Run Solve
                         result = solver.solve(train_df, config.target, seed)
 
-                        found_eq_to_save = result.equation
+                        equation = result.equation
+
                         if bench_pretty_map and result.status == "Success":
-                            found_eq_to_save = _pretty_equation(found_eq_to_save, bench_pretty_map)
+                            equation = _pretty_equation(result.equation, bench_pretty_map)
                         
                         # 3. Log
                         row = {
@@ -311,9 +313,11 @@ def run_experiment(args):
                             "method": model_name,
                             "noise": noise,
                             "seed": seed,
-                            "found_eq": found_eq_to_save,
-                            "found_eq_raw": result.raw_equation,
-                            "r2": f"{result.train_r2:.4f}",
+                            "equation": equation,
+                            "raw_equation": result.raw_equation,
+                            "r2": f"{result.r2:.4f}",
+                            "mse": f"{result.mse:.4f}",
+                            "mae": f"{result.mae:.4f}",
                             "time_s": f"{result.time_sec:.2f}",
                             "status": result.status
                         }
@@ -349,13 +353,14 @@ def run_experiment(args):
                                     s_writer.writerow(row)
                         
                         # Console Feedback
-                        pretty_eq = _pretty_equation(found_eq_to_save or "", bench_pretty_map)
+                        pretty_eq = _pretty_equation(equation or "", bench_pretty_map)
                         eq_preview = (pretty_eq or "").replace("\n", " ").strip()
                         if len(eq_preview) > 160:
                             eq_preview = eq_preview[:157] + "..."
-                        print(f"[{model_name}] {dataset_id_for_logs} (N={noise}, S={seed}) -> {result.status} (R2: {result.train_r2:.4f})")
+                        print(f"[{model_name}] {dataset_id_for_logs} (N={noise}, S={seed}) -> {result.status} (R2: {result.r2:.4f})")
                         if eq_preview and eq_preview not in ("No law found", "Error"):
                             print(f"    Eq: {eq_preview}")
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Symbolic Regression Models (BACON/PySR)")
@@ -365,7 +370,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
         choices=SOLVER_REGISTRY.keys(),
-        help="List of models to run (e.g. bacon3 bacon7)",
+        help="List of models to run (e.g. bacon3f bacon7f)",
     )
 
     parser.add_argument(
