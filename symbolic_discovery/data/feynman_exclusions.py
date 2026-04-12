@@ -1,4 +1,5 @@
 """
+TBD: NEED TO BE REDONE
 Feynman Equations Expected to Fail for BACON Algorithms.
 
 This module documents which Feynman equations are expected to fail for BACON-style

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from .bacon3 import Bacon3Wrapper
-from .bacon7 import Bacon7Wrapper
-from .pysr import PySRWrapper
+from .bacon3f import Bacon3FSolver
+from .bacon7f import Bacon7FSolver
+from .pysr import PySRSolver
 
 SOLVER_REGISTRY = {
-    "bacon3": Bacon3Wrapper,
-    "bacon7": Bacon7Wrapper,
-    "pysr": PySRWrapper,
+    "bacon3f": Bacon3FSolver,
+    "bacon7f": Bacon7FSolver,
+    "pysr": PySRSolver,
 }

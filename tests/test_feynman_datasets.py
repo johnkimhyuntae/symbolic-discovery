@@ -1,13 +1,10 @@
 from __future__ import annotations
-
 from pathlib import Path
 import re
-
 import pandas as pd
 import pytest
-
-from symbolic_discovery._core.bacon3 import BACON3
-from symbolic_discovery._core.bacon7 import BACON7
+from symbolic_discovery.algorithms import BACON3F
+from symbolic_discovery.algorithms import BACON7F
 
 
 ROOT = Path(__file__).resolve().parents[1] / "feynman"
@@ -111,7 +108,7 @@ def test_feynman_all_equations_loadable(eq_id: str):
 
 
 @pytest.mark.parametrize("eq_id", MUST_SOLVE_EQUATIONS)
-def test_feynman_must_solve_equations_bacon3_and_bacon7(eq_id: str):
+def test_feynman_must_solve_equations_bacon3f_and_bacon7f(eq_id: str):
     if not HAS_FEYNMAN:
         pytest.skip("Feynman datasets not present in this checkout")
     if eq_id not in EQUATION_IDS:
@@ -121,21 +118,21 @@ def test_feynman_must_solve_equations_bacon3_and_bacon7(eq_id: str):
     if len(train_df.columns) < 2:
         pytest.skip(f"Equation {eq_id} is constant-only in this checkout")
 
-    # BACON.3
-    eq3, d3 = BACON3(max_depth=3, r2_threshold=0.98, verbose=False).discover(train_df, target_col="y")
+    # BACON.3F
+    eq3, d3 = BACON3F(max_depth=3, r2_threshold=0.98, verbose=False).discover(train_df, target_col="y")
     assert eq3 is not None
     assert "Failed" not in eq3
     assert float((d3 or {}).get("R-squared", 0.0)) >= 0.98
 
-    # BACON.7
-    eq7, d7 = BACON7(max_depth=4, r2_threshold=0.98, verbose=False).discover(train_df, target_col="y")
+    # BACON.7F
+    eq7, d7 = BACON7F(max_depth=4, r2_threshold=0.98, verbose=False).discover(train_df, target_col="y")
     assert eq7 is not None
     assert "No law found" not in eq7
     assert float((d7 or {}).get("R-squared", 0.0)) >= 0.98
 
 
 @pytest.mark.parametrize("eq_id", EQUATION_IDS)
-def test_feynman_bacon7_solves_algebraic_equations(eq_id: str):
+def test_feynman_bacon7f_solves_algebraic_equations(eq_id: str):
     if not HAS_FEYNMAN:
         pytest.skip("Feynman datasets not present in this checkout")
 
@@ -148,7 +145,7 @@ def test_feynman_bacon7_solves_algebraic_equations(eq_id: str):
     if len(train_df.columns) < 2:
         pytest.xfail(f"{eq_id}: constant-only dataset (no independent variables)")
 
-    solver = BACON7(max_depth=4, r2_threshold=0.98, verbose=False)
+    solver = BACON7F(max_depth=4, r2_threshold=0.98, verbose=False)
     equation, diagnostics = solver.discover(train_df, target_col="y")
 
     assert equation is not None
@@ -158,7 +155,7 @@ def test_feynman_bacon7_solves_algebraic_equations(eq_id: str):
 
 
 @pytest.mark.parametrize("eq_id", EQUATION_IDS)
-def test_feynman_bacon3_runs_on_algebraic_equations(eq_id: str):
+def test_feynman_bacon3f_runs_on_algebraic_equations(eq_id: str):
     if not HAS_FEYNMAN:
         pytest.skip("Feynman datasets not present in this checkout")
 
@@ -171,8 +168,8 @@ def test_feynman_bacon3_runs_on_algebraic_equations(eq_id: str):
     if len(train_df.columns) < 2:
         pytest.xfail(f"{eq_id}: constant-only dataset (no independent variables)")
 
-    # BACON.3 is weaker than BACON.7 on many equations
+    # BACON.3F is weaker than BACON.7F on many equations
     # we assert only that it runs and produces a well-formed (non-crashing) result.
-    equation, diagnostics = BACON3(max_depth=3, r2_threshold=0.95, verbose=False).discover(train_df, target_col="y")
+    equation, diagnostics = BACON3F(max_depth=3, r2_threshold=0.95, verbose=False).discover(train_df, target_col="y")
     assert equation is not None
     assert isinstance(diagnostics, dict)

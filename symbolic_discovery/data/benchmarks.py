@@ -28,11 +28,6 @@ def _read_whitespace_matrix(file_path: Path, n_samples: int) -> np.ndarray:
     return np.vstack(rows)
 
 
-# ---------------------------------
-# Generic benchmark dataset helpers
-# (Feynman + Bonus; with/without units)
-# ---------------------------------
-
 _BENCHMARK_META_FILES: dict[tuple[str, bool], str] = {
     ("feynman", True): "FeynmanEquationsDimensionless.csv",
     ("feynman", False): "FeynmanEquations.csv",
@@ -228,10 +223,7 @@ def load_benchmark_df_and_pretty_map(
     return df, pretty_map
 
 
-# ------------------------------
 # Convenience wrappers for the original dimensionless Feynman helpers
-# ------------------------------
-
 
 def list_feynman_dimensionless_equations(
     *,

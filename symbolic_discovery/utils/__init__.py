@@ -4,14 +4,12 @@ from .metrics import (
     calculate_mae,
     calculate_mse,
     calculate_r2,
-    evaluate_equation_constancy,
-    fit_linear_model,
+    calculate_r,
 )
 
 __all__ = [
     "calculate_mae",
     "calculate_mse",
     "calculate_r2",
-    "evaluate_equation_constancy",
-    "fit_linear_model",
+    "calculate_r",
 ]
