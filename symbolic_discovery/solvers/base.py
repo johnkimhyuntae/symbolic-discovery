@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-
 import pandas as pd
 
 
@@ -10,8 +8,9 @@ import pandas as pd
 class SolverResult:
     equation: str
     raw_equation: str
-    train_r2: float
+    r2: float
     mse: float
+    mae: float
     time_sec: float
     status: str
 

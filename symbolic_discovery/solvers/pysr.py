@@ -1,25 +1,27 @@
 from __future__ import annotations
-
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 import numpy as np
 import pandas as pd
 import re
-
+from build.lib.symbolic_discovery.utils.metrics import calculate_mae
 from symbolic_discovery.utils import calculate_mse, calculate_r2
-
 from .base import BaseSolver, SolverResult
 
 
-class PySRWrapper(BaseSolver):
+class PySRSolver(BaseSolver):
+    """
+    Wrapper for the PySR symbolic regression library
+    TBD: MORE
+    """
     def __init__(self, noise_level: float = 0.0, **kwargs: Any):
         self.noise_level = noise_level
         self.verbose = kwargs.get("verbose", False)
         self.engine_params: dict[str, Any] = dict(kwargs)
         self.engine_params.pop("verbose", None)
+
 
     def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
         start_time = time.time()
@@ -34,8 +36,9 @@ class PySRWrapper(BaseSolver):
                     "Install it (and ensure Julia works), then rerun with --models pysr. "
                     f"Import error: {e}"
                 ),
-                train_r2=0.0,
+                r2=0.0,
                 mse=float("inf"),
+                mae=float("inf"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
@@ -44,8 +47,9 @@ class PySRWrapper(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"Target column '{target_col}' not found in training dataframe",
-                train_r2=0.0,
+                r2=0.0,
                 mse=float("inf"),
+                mae=float("inf"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
@@ -57,14 +61,15 @@ class PySRWrapper(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation="No feature columns found after removing target",
-                train_r2=0.0,
+                r2=0.0,
                 mse=float("inf"),
+                mae=float("inf"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
 
         # Some column names collide with SymPy built-ins (e.g. I = imaginary unit, E = Euler's number).
-        # PySR uses SymPy-compatible variable naming, so we sanitize names before fitting.
+        # PySR uses SymPy-compatible variable naming, so we sanitise names before fitting.
         reserved = {"I", "E", "pi"}
         rename_map: dict[str, str] = {}
         used: set[str] = set()
@@ -169,9 +174,10 @@ class PySRWrapper(BaseSolver):
         if model is None:
             return SolverResult(
                 equation="Error",
-                raw_equation=f"Could not initialize PySRRegressor with provided params: {last_type_error}",
-                train_r2=0.0,
+                raw_equation=f"Could not initialise PySRRegressor with provided params: {last_type_error}",
+                r2=0.0,
                 mse=float("inf"),
+                mae=float("inf"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
@@ -182,18 +188,21 @@ class PySRWrapper(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"PySR fit failed: {e}",
-                train_r2=0.0,
+                r2=0.0,
                 mse=float("inf"),
+                mae=float("inf"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
 
-        train_r2 = 0.0
+        r2 = 0.0
         mse = float("inf")
+        mae = float("inf")
         try:
             y_pred = np.asarray(model.predict(X))
-            train_r2 = calculate_r2(y, y_pred)
+            r2 = calculate_r2(y, y_pred)
             mse = calculate_mse(y, y_pred)
+            mae = calculate_mae(y, y_pred)
         except Exception:
             pass
 
@@ -232,13 +241,14 @@ class PySRWrapper(BaseSolver):
             return SolverResult(
                 equation="No law found",
                 raw_equation="No law found",
-                train_r2=train_r2,
+                r2=r2,
                 mse=mse,
+                mae=mae,
                 time_sec=duration,
                 status="Failed",
             )
 
-        # Map sanitized variable names back to the original dataset columns.
+        # Map sanitised variable names back to the original dataset columns.
         if rename_map:
             inv_map = {v: k for k, v in rename_map.items()}
             keys = sorted(inv_map.keys(), key=len, reverse=True)
@@ -252,8 +262,9 @@ class PySRWrapper(BaseSolver):
         return SolverResult(
             equation=eq_to_save,
             raw_equation=raw_eq,
-            train_r2=train_r2,
+            r2=r2,
             mse=mse,
+            mae=mae,
             time_sec=duration,
             status="Success",
         )
