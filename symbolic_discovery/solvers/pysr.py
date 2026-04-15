@@ -1,186 +1,128 @@
 from __future__ import annotations
+
+import re
 import time
-from datetime import datetime
-from pathlib import Path
 from typing import Any
+
 import numpy as np
 import pandas as pd
-import re
-from build.lib.symbolic_discovery.utils.metrics import calculate_mae
-from symbolic_discovery.utils import calculate_mse, calculate_r2
+
+from symbolic_discovery.utils import calculate_mse, calculate_r2, calculate_mae
 from .base import BaseSolver, SolverResult
 
 
+# SymPy reserved names that PySR will misinterpret as built-in constants.
+_SYMPY_RESERVED = {"I", "E", "pi"}
+
+
+def _sanitise_columns(X: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Rename columns that collide with SymPy built-ins.
+
+    Returns ``(X_renamed, rename_map)`` where *rename_map* is only
+    populated for columns that were actually changed.
+    """
+    rename_map: dict[str, str] = {}
+    used: set[str] = set()
+
+    for idx, col in enumerate(X.columns):
+        safe = (
+            col not in _SYMPY_RESERVED
+            and re.match(r"^[A-Za-z_]\w*$", col) is not None
+            and col not in used
+        )
+        if safe:
+            used.add(col)
+            continue
+
+        candidate = f"x{idx + 1}"
+        j = 1
+        while candidate in used or candidate in _SYMPY_RESERVED:
+            j += 1
+            candidate = f"x{idx + 1}_{j}"
+        rename_map[col] = candidate
+        used.add(candidate)
+
+    if rename_map:
+        X = X.rename(columns=rename_map)
+    return X, rename_map
+
+
+def _unsanitise_equation(eq: str, rename_map: dict[str, str]) -> str:
+    """Replace sanitised variable names back to originals in *eq*."""
+    if not rename_map:
+        return eq
+    inv = {v: k for k, v in rename_map.items()}
+    for k in sorted(inv, key=len, reverse=True):
+        eq = re.sub(rf"\b{re.escape(k)}\b", inv[k], eq)
+    return eq
+
+
+def _extract_equation(model: Any) -> str:
+    """Pull the best symbolic equation string from a fitted PySRRegressor."""
+    if hasattr(model, "get_best"):
+        best = model.get_best()
+        if isinstance(best, pd.Series):
+            for key in ("sympy_format", "equation"):
+                if key in best:
+                    return str(best[key])
+            return str(best.to_dict())
+        if isinstance(best, dict):
+            return str(best.get("sympy_format") or best.get("equation") or best)
+        return str(best)
+
+    if hasattr(model, "sympy"):
+        return str(model.sympy())
+
+    if hasattr(model, "equations_"):
+        eqs = model.equations_
+        if hasattr(eqs, "iloc") and len(eqs) > 0:
+            for col in ("equation", "sympy_format"):
+                if col in getattr(eqs, "columns", []):
+                    return str(eqs.iloc[0][col])
+            return str(eqs.iloc[0])
+
+    return ""
+
+
 class PySRSolver(BaseSolver):
-    """
-    Wrapper for the PySR symbolic regression library
-    TBD: MORE
-    """
-    def __init__(self, noise_level: float = 0.0, **kwargs: Any):
-        self.noise_level = noise_level
+    """Wrapper for PySR, standardised to the BaseSolver interface."""
+
+    def __init__(self, **kwargs: Any):
         self.verbose = kwargs.get("verbose", False)
-        self.engine_params: dict[str, Any] = dict(kwargs)
-        self.engine_params.pop("verbose", None)
 
-
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
-        start_time = time.time()
+    def solve(
+        self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
+        target_col: str, seed: int) -> SolverResult:
+        start = time.time()
 
         try:
             from pysr import PySRRegressor  # type: ignore
         except Exception as e:
             return SolverResult(
                 equation="Error",
-                raw_equation=(
-                    "PySR is not available in this environment. "
-                    "Install it (and ensure Julia works), then rerun with --models pysr. "
-                    f"Import error: {e}"
-                ),
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
-                time_sec=time.time() - start_time,
-                status="Error",
-            )
-
-        if target_col not in train_df.columns:
-            return SolverResult(
-                equation="Error",
-                raw_equation=f"Target column '{target_col}' not found in training dataframe",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
-                time_sec=time.time() - start_time,
+                raw_equation=f"PySR import failed: {e}",
+                r2=0.0, mse=float("inf"), mae=float("inf"),
+                time_sec=time.time() - start,
                 status="Error",
             )
 
         X = train_df.drop(columns=[target_col])
-        y = np.asarray(train_df[target_col].to_numpy(copy=True))
+        y = train_df[target_col].to_numpy(copy=True)
+        X, rename_map = _sanitise_columns(X)
 
-        if X.shape[1] == 0:
-            return SolverResult(
-                equation="Error",
-                raw_equation="No feature columns found after removing target",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
-                time_sec=time.time() - start_time,
-                status="Error",
-            )
-
-        # Some column names collide with SymPy built-ins (e.g. I = imaginary unit, E = Euler's number).
-        # PySR uses SymPy-compatible variable naming, so we sanitise names before fitting.
-        reserved = {"I", "E", "pi"}
-        rename_map: dict[str, str] = {}
-        used: set[str] = set()
-
-        def _is_safe(name: str) -> bool:
-            if name in reserved:
-                return False
-            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
-                return False
-            return True
-
-        for idx, col in enumerate(list(X.columns)):
-            if _is_safe(col) and col not in used:
-                used.add(col)
-                continue
-
-            base = f"x{idx+1}"
-            candidate = base
-            j = 1
-            while candidate in used or candidate in reserved:
-                j += 1
-                candidate = f"{base}_{j}"
-            rename_map[col] = candidate
-            used.add(candidate)
-
-        if rename_map:
-            X = X.rename(columns=rename_map)
-
-        base_params: dict[str, Any] = {
-            "niterations": int(self.engine_params.get("niterations", 40)),
+        params: dict[str, Any] = {
+            # "niterations": 40,
+            "binary_operators": ["+", "-", "*", "/"], # standardise operator set with BACON
+            "verbosity": 1 if self.verbose else 0,
+            "parallelism": "serial",
+            "deterministic": True,
+            "random_state": seed,
+            "temp_equation_file": True,
+            "delete_tempfiles": True,
+            "maxdepth": 6, # TBD: let me make same to BACONs
         }
-        # Align default operator set with the BACON solvers for fair comparisons.
-        if "binary_operators" in self.engine_params:
-            base_params["binary_operators"] = self.engine_params["binary_operators"]
-        else:
-            base_params["binary_operators"] = ["+", "-", "*", "/"]
-        if "unary_operators" in self.engine_params:
-            base_params["unary_operators"] = self.engine_params["unary_operators"]
 
-        # Keep PySR side-effects (files + progress output) consistent with the BACON solvers by default.
-        # - If the user did not request an output directory/run_id, keep outputs temporary and auto-cleaned.
-        # - If the user did request outputs, use a readable timestamp run_id.
-        if "progress" not in self.engine_params:
-            base_params["progress"] = False
-        if "verbosity" not in self.engine_params:
-            base_params["verbosity"] = 0
-        # PySR warns if random_state is set without deterministic+serial.
-        # We always pass random_state (seed) below, so make searches deterministic by default.
-        if "parallelism" not in self.engine_params:
-            base_params["parallelism"] = "serial"
-        if "deterministic" not in self.engine_params:
-            base_params["deterministic"] = True
-
-        user_output_directory = self.engine_params.get("output_directory")
-        user_run_id = self.engine_params.get("run_id")
-
-        def _timestamp_run_id() -> str:
-            return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        def _unique_run_id(parent: Path, base: str) -> str:
-            candidate = base
-            i = 0
-            while (parent / candidate).exists():
-                i += 1
-                candidate = f"{base}_{i}"
-            return candidate
-
-        if user_output_directory is None and user_run_id is None:
-            # No explicit request to persist artifacts; write to a temp dir and delete.
-            base_params.setdefault("temp_equation_file", True)
-            base_params.setdefault("delete_tempfiles", True)
-        else:
-            # Persist artifacts, but make naming legible.
-            base_params.setdefault("temp_equation_file", False)
-            if user_output_directory is not None:
-                base_params["output_directory"] = user_output_directory
-
-            if user_run_id is not None:
-                base_params["run_id"] = user_run_id
-            else:
-                # Determine where the run_id directory will live.
-                parent = Path(str(user_output_directory) if user_output_directory is not None else "outputs")
-                base = _timestamp_run_id()
-                base_params["run_id"] = _unique_run_id(parent, base)
-
-        candidate_params: list[dict[str, Any]] = [
-            {**base_params, "random_state": seed},
-            {**base_params, "seed": seed},
-            {**base_params},
-        ]
-
-        model = None
-        last_type_error: Exception | None = None
-        for params in candidate_params:
-            try:
-                model = PySRRegressor(**params)
-                break
-            except TypeError as e:
-                last_type_error = e
-                continue
-
-        if model is None:
-            return SolverResult(
-                equation="Error",
-                raw_equation=f"Could not initialise PySRRegressor with provided params: {last_type_error}",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
-                time_sec=time.time() - start_time,
-                status="Error",
-            )
+        model = PySRRegressor(**params)
 
         try:
             model.fit(X, y)
@@ -188,83 +130,55 @@ class PySRSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"PySR fit failed: {e}",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
-                time_sec=time.time() - start_time,
+                r2=0.0, mse=float("inf"), mae=float("inf"),
+                time_sec=time.time() - start,
                 status="Error",
             )
 
-        r2 = 0.0
-        mse = float("inf")
-        mae = float("inf")
+        # Metrics TBD TBD
+        r2, mse, mae = 0.0, float("inf"), float("inf")
         try:
-            y_pred = np.asarray(model.predict(X))
-            r2 = calculate_r2(y, y_pred)
-            mse = calculate_mse(y, y_pred)
-            mae = calculate_mae(y, y_pred)
+            y_test = test_df[target_col].to_numpy(copy=True)
+            x_test = test_df.drop(columns=[target_col])
+            x_test, _ = _sanitise_columns(x_test)
+            y_pred = model.predict(x_test)
+            r2 = calculate_r2(y_test, y_pred)
+            mse = calculate_mse(y_test, y_pred)
+            mae = calculate_mae(y_test, y_pred)
         except Exception:
             pass
 
-        raw_eq = ""
+        # Equation extraction
         try:
-            if hasattr(model, "get_best"):
-                best = model.get_best()
-                # PySR commonly returns a pandas Series for a single row.
-                if isinstance(best, pd.Series):
-                    if "sympy_format" in best:
-                        raw_eq = str(best["sympy_format"])
-                    elif "equation" in best:
-                        raw_eq = str(best["equation"])
-                    else:
-                        raw_eq = str(best.to_dict())
-                elif isinstance(best, dict):
-                    raw_eq = str(best.get("sympy_format") or best.get("equation") or best)
-                else:
-                    raw_eq = str(best)
-            elif hasattr(model, "sympy"):
-                raw_eq = str(model.sympy())
-            elif hasattr(model, "equations_"):
-                eqs = getattr(model, "equations_")
-                if hasattr(eqs, "iloc") and len(eqs) > 0:
-                    for col in ("equation", "sympy_format", "latex_format"):
-                        if hasattr(eqs, "columns") and col in eqs.columns:
-                            raw_eq = str(eqs.iloc[0][col])
-                            break
-                    if not raw_eq:
-                        raw_eq = str(eqs.iloc[0])
+            raw_eq = _extract_equation(model)
         except Exception as e:
-            raw_eq = f"PySR fitted but could not extract equation: {e}"
+            raw_eq = f"PySR fitted but equation extraction failed: {e}"
+            return SolverResult(
+                equation="Error",
+                raw_equation=raw_eq,
+                r2=r2, mse=mse, mae=mae,
+                time_sec=time.time() - start,
+                status="Error",
+            )
 
-        duration = time.time() - start_time
+        duration = time.time() - start
+
         if not raw_eq:
             return SolverResult(
                 equation="No law found",
                 raw_equation="No law found",
-                r2=r2,
-                mse=mse,
-                mae=mae,
+                r2=r2, mse=mse, mae=mae,
                 time_sec=duration,
-                status="Failed",
+                status="Failure",
             )
 
-        # Map sanitised variable names back to the original dataset columns.
-        if rename_map:
-            inv_map = {v: k for k, v in rename_map.items()}
-            keys = sorted(inv_map.keys(), key=len, reverse=True)
-            for k in keys:
-                raw_eq = re.sub(rf"\b{re.escape(k)}\b", inv_map[k], raw_eq)
-
-        eq_to_save = raw_eq
-        if "=" not in eq_to_save:
-            eq_to_save = f"{target_col} = {raw_eq}"
+        raw_eq = _unsanitise_equation(raw_eq, rename_map)
+        equation = f"{target_col} = {raw_eq}" if "=" not in raw_eq else raw_eq
 
         return SolverResult(
-            equation=eq_to_save,
+            equation=equation,
             raw_equation=raw_eq,
-            r2=r2,
-            mse=mse,
-            mae=mae,
+            r2=r2, mse=mse, mae=mae,
             time_sec=duration,
-            status="Success",
+            status="Found",
         )

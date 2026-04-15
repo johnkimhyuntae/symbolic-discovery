@@ -17,5 +17,5 @@ class SolverResult:
 
 class BaseSolver(ABC):
     @abstractmethod
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
+    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
         raise NotImplementedError
