@@ -1,5 +1,8 @@
 """Shared utility functions for solvers."""
 import numpy as np
+import pandas as pd
+import sympy
+from typing import Tuple
 
 
 def calculate_r(X: np.ndarray, Y: np.ndarray) -> float:
@@ -84,3 +87,34 @@ def calculate_mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     return float(np.mean(np.abs(y_true - y_pred)))
+
+
+# For SR models that return an equation string, we can calculate metrics by evaluating the equation on the test set.
+def equation_to_metrics(eq_str: str, test_df: pd.DataFrame, target_col: str) -> Tuple[float, float, float]:
+    """
+    Given an equation string and test data, calculate R², MSE, and MAE.
+    
+     Args:
+        eq_str: Equation string in the form "y = expression"
+        test_df: DataFrame containing test data
+        target_col: Name of the target column in test_df
+    """
+    if target_col not in test_df.columns:
+        raise ValueError(f"Target column '{target_col}' not found in test dataframe.")
+    
+    if eq_str == "No law found":
+        return 0.0, float("inf"), float("inf")
+
+    rhs = eq_str.split("=", 1)[-1].strip()
+    local_syms = {col: sympy.Symbol(col) for col in test_df.columns if col != target_col}
+    expr = sympy.sympify(rhs, locals=local_syms, evaluate=False)
+    sym_map = {s: test_df[str(s)].to_numpy() for s in expr.free_symbols}
+
+    y_pred = sympy.lambdify(list(sym_map.keys()), expr, modules=["numpy"])(*sym_map.values())
+    y_test = test_df[target_col].to_numpy()
+
+    r2 = calculate_r2(y_test, y_pred)
+    mse = calculate_mse(y_test, y_pred)
+    mae = calculate_mae(y_test, y_pred)
+
+    return r2, mse, mae
