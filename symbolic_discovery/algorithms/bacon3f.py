@@ -20,52 +20,46 @@ class Term:
     and numeric data in lockstep without re-evaluating expressions
     from scratch.
     """
-    symbol: Expr    
+    symbol: Expr
     values: np.ndarray
 
 
 class BACON3F:
     """
-    BACON.3F: flat tabular adaptation of Langley's BACON.3 (1979).
+    BACON.3F: a flat tabular adaptation of Langley's BACON.3 (1979).
 
     Discovers empirical laws by iterating directed pairwise heuristic
-    checks (constancy → linearity → product/ratio) over a pool of
-    symbolic terms. New composites are promoted each layer; laws are
-    collected whenever a composite is found to be constant and contains
-    the target variable.
+    checks over a pool of symbolic terms. New composites are promoted 
+    each layer and laws are collected whenever a composite is found to 
+    be constant and contains the target variable.
 
-    Key differences from Langley's original BACON.3:
+    Quirks:
 
-    - Flat tabular instead of factorial tree: Langley's algorithm operates
-      on factorial-design data with a tree of conditioning contexts.
-      BACON.3F takes a flat DataFrame and tests all directed pairs per
-      layer, making no assumptions about the data's experimental design.
+    - IQR-based linearity: slope constancy is assessed via the 
+    interquartile range of finite differences.
 
-    - IQR-based linearity: slope constancy is assessed via the
-      interquartile range of finite differences rather than unanimous
-      agreement across factorial subsets.
+    - Early stopping: discovery halts as soon as a law exceeding the 
+    R² threshold is found, avoiding unnecessary combinatorial 
+    exploration at deeper layers.
 
-    - Early stopping: discovery halts as soon as a law exceeding the
-      R² threshold is found, avoiding unnecessary combinatorial
-      exploration at deeper layers.
-
-    - Deduplication: a tried-permutations set prevents re-checking
-      the same directed pair across layers, and a known-expressions
-      set prevents proposing duplicate composites.
+    - Deduplication: a tried-permutations set prevents re-checking 
+    the same directed pair across layers, and a known-expressions 
+    set prevents proposing duplicate composites.
     """
     def __init__(self, 
-                 max_depth: int = 3,
-                 constancy_threshold: float = 0.05,
-                 r2_threshold: float = 0.990,
+                 max_depth: int = 6,
+                 constancy_threshold: float = 0.1,
+                 r2_threshold: float = 0.9,
                  verbose: bool = False):
         """
         Initialise the BACON.3F solver.
 
+        TBD: For now, defaults assume noisy data.
+
         Args:
             max_depth: Maximum number of discovery layers before stopping.
                 Each layer tests all novel directed pairs and promotes
-                non-constant composites. Deeper layers find more complex
-                laws but scale combinatorially.
+                non-constant composites.
             constancy_threshold: Unified threshold for all constancy
                 checks: variable constancy (are all values within
                 mean ± threshold?), slope constancy (is IQR/median of
@@ -73,8 +67,7 @@ class BACON3F:
                 negligibility (is |intercept/mean| below threshold?).
             r2_threshold: Minimum predictive R² for early stopping. When
                 a discovered law meets or exceeds this threshold, the
-                search halts immediately. Set by the wrapper based on
-                the expected noise level.
+                search halts immediately.
             verbose: If True, print the decision log to stdout.
         """
         self.constancy_threshold = constancy_threshold
@@ -113,9 +106,7 @@ class BACON3F:
     
     def _check(self, dependent: Term, independent: Term) -> Tuple[Term | None, str]:
         """
-        Langley's pairwise heuristic check (adapted for flat data).
-
-        Applies three checks in priority order:
+        Applies four checks in this order:
 
         1. **Constancy**: is the dependent already constant? If all
            values fall within mean x (1 ± threshold), the dependent
@@ -129,9 +120,13 @@ class BACON3F:
            (producing a ratio y/x) from significant intercepts
            (producing a residual y - mx).
 
-        3. **Monotonic trend**: if non-linear, the Pearson correlation
-           sign determines whether to propose a ratio (r > 0, co-varying)
-           or product (r < 0, inversely varying).
+        3. **Uncorrelatedness**: if the Pearson correlation coefficient 
+           |r| < 0.5, the variables are considered uncorrelated, and no
+           meaningful relationship is proposed.
+
+        4. **Monotonic trend**: if non-linear and correlated, the Pearson 
+           correlation sign determines whether to propose a ratio 
+           (r > 0, co-varying) or product (r < 0, inversely varying).
 
         Args:
             dependent: The term treated as y.
@@ -139,7 +134,7 @@ class BACON3F:
 
         Returns:
             A (Term, relation_type) pair where relation_type is one of
-            "Constant", "Linear", "Ratio", "Product"; or (None, "Null")
+            "Constant", "Linear", "Ratio", "Product" or (None, "Null")
             if no relation was found or the proposed expression is a
             known duplicate.
         """
@@ -150,23 +145,20 @@ class BACON3F:
         # Guard against division by zero in ratio operations
         safe_X = np.where(np.abs(X) < 1e-9, 1e-9, X)
 
-
         # Constancy check
-
         M_Y = float(np.mean(Y))
-        if np.abs(M_Y) < 1e-9:
+        if np.abs(M_Y) < 1e-4:
             # Near-zero mean: strict inequality on zero-width bounds
             # would always fail, so check absolute spread instead
-            if np.all(np.abs(Y) < 1e-9):
+            if np.mean(np.abs(Y) < 1e-4) > 0.95:
                 return (dependent, "Constant")
         else:
+            # BACON.3F's fixed threshold makes it hard to find noisy constant relationships.
             lo, hi = sorted([M_Y * (1 - self.constancy_threshold), M_Y * (1 + self.constancy_threshold)])
-            if np.all((Y > lo) & (Y < hi)):
+            if np.mean((Y > lo) & (Y < hi)) > 0.95:
                 return (dependent, "Constant")
 
-
         # Linearity check
-
         # Sort by X, compute finite-difference slopes, test constancy
         sorted_idx = np.argsort(X)
         X_s = X[sorted_idx]
@@ -185,7 +177,7 @@ class BACON3F:
             intercept_cv = np.abs(intercept) / (np.abs(M_Y) + 1e-8)
 
             if intercept_cv < self.constancy_threshold:
-                # Negligible intercept: y ≈ mx -> invariant is y/x
+                # Negligible intercept: y = mx -> invariant is y/x
                 new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
                 vals = Y / safe_X
                 return (Term(new_expr, vals), "Linear")
@@ -196,10 +188,13 @@ class BACON3F:
                 vals = Y - m * X
                 return (Term(new_expr, vals), "Linear")
 
+        r = calculate_r(X, Y)
+
+        # Uncorrelatedness check
+        if np.abs(r) < 0.5:
+            return (None, "Null")
 
         # Monotonic trend check
-
-        r = calculate_r(X, Y)
         if r > 0:
             # co-varying: divide to get invariant
             new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
@@ -316,11 +311,6 @@ class BACON3F:
         halts immediately (early stopping). Non-constant composites
         are promoted into the pool for the next layer.
 
-        The pool grows each layer, so the number of pairs checked
-        scales quadratically with pool size. Deduplication via
-        tried_permutations and known_expressions mitigates this
-        but deep searches can still be slow.
-
         Args:
             data: DataFrame containing all variables including target.
             target_col: Name of the target column.
@@ -333,11 +323,19 @@ class BACON3F:
             "MSE", and "MAE". Returns ("No law found", {...}) on
             failure.
         """
-        
+
         np.random.seed(seed)
 
-        # TBD: either reinitialise all or none
+        # Reinitialise all internal states for a fresh discovery run.
         self.logs = []
+        self.variable_pool = []
+        self.target_var = None
+        self.target_values = None
+        self.discovered_laws = []
+        self.discovered_strs = set()
+        self.tried_permutations = set()
+        self.known_expressions = set()
+        self.sym_to_vals = {}
         
         self.target_var = symbols(target_col)
         self.target_values = np.asarray(data[target_col].values)
@@ -359,7 +357,6 @@ class BACON3F:
 
 
         # Main loop
-
         for i in range(self.max_depth):
             self._log(f"--- Layer {i+1} ---")
 
@@ -372,11 +369,13 @@ class BACON3F:
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
 
                 result, relation_type = self._check(dependent, independent)
+
                 if result is not None:
                     if relation_type == "Constant":
                         # Only record laws that involve the target variable
                         if self._contains_target(result.symbol) and str(result.symbol) not in self.discovered_strs:
-                            self._log(f"  Discovered law: {str(result.symbol)} = {np.mean(result.values)}")
+                            # TBD: loud
+                            # self._log(f"  Discovered law: {str(result.symbol)} = {np.mean(result.values):.4g}")
                             self.discovered_strs.add(str(result.symbol))
                             self.known_expressions.add(str(result.symbol))
 
@@ -399,7 +398,6 @@ class BACON3F:
                         continue
 
                     # Non-constant: promote composite into pool for next layer
-                    self._log(f"  Candidate: {result.symbol} via {relation_type}")
                     self.known_expressions.add(str(result.symbol))
                     candidates_this_layer.append(result)
 
@@ -416,5 +414,6 @@ class BACON3F:
             return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
 
         self.discovered_laws.sort(key=lambda x: (-x[1]["R-squared"], x[1]["MSE"]))
-        self._log(f"Discovery complete: {self.discovered_laws[0][0]} with R²={self.discovered_laws[0][1]['R-squared']:.4f}")
+        self._log(f"Discovery complete: {self.discovered_laws[0][0]} with R²={self.discovered_laws[0][1]['R-squared']:.4f} with {len(self.variable_pool)} total expressions in pool.")
         return self.discovered_laws[0]
+    
