@@ -4,8 +4,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-from ..experiments import runner
-from ..experiments import view_results
+from ..experiments import runner, viewer
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -38,7 +37,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         return
 
     if command == "view":
-        view_results.main(forwarded)
+        viewer.main(forwarded)
         return
 
     parser = build_arg_parser()
