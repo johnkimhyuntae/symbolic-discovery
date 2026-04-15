@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "symbolic-discovery"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
-description = "Symbolic discovery experiments (BACON.3/BACON.7) with datasets and experiment runner."
+description = "A benchmarking framework for symbolic regression research, implementing BACON.3F/BACON.7F alongside PySR with curated datasets and a unified experiment runner."
 readme = "README.md"
 
 dependencies = [
@@ -15,17 +15,23 @@ dependencies = [
 	"pandas>=1.5",
 	"scipy>=1.9",
 	"sympy>=1.10",
+	"rich>=13.0",
 ]
 
 [project.optional-dependencies]
 dev = [
 	"pytest>=8",
 ]
+pysr = [
+	"pysr>=0.16",
+]
 
 [project.scripts]
-symbolic-discovery = "symbolic_discovery.cli:main"
-
+symbolic-discovery = "symbolic_discovery.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["symbolic_discovery*"]
+
+[tool.setuptools.package-data]
+"symbolic_discovery.data" = ["feynman_exclusions.json"]
