@@ -2,11 +2,9 @@ from __future__ import annotations
 import time
 from typing import Any
 import pandas as pd
-import sympy
-import numpy as np
 from symbolic_discovery.algorithms import BACON7F
 from .base import BaseSolver, SolverResult
-from symbolic_discovery.utils import calculate_mse, calculate_r2, calculate_mae
+from symbolic_discovery.utils import equation_to_metrics
 
 
 class BACON7FSolver(BaseSolver):
@@ -69,15 +67,7 @@ class BACON7FSolver(BaseSolver):
             # Evaluate on test set if possible
             r2, mse, mae = 0.0, float("inf"), float("inf")
             try:
-                rhs = eq_clean.split("=", 1)[-1].strip()
-                local_syms = {col: sympy.Symbol(col) for col in test_df.columns if col != target_col}
-                expr = sympy.sympify(rhs, locals=local_syms, evaluate=False)
-                sym_map = {s: test_df[str(s)].to_numpy() for s in expr.free_symbols}
-                y_pred = sympy.lambdify(list(sym_map.keys()), expr, modules=["numpy"])(*sym_map.values())
-                y_test = test_df[target_col].to_numpy()
-                r2 = calculate_r2(y_test, y_pred)
-                mse = calculate_mse(y_test, y_pred)
-                mae = calculate_mae(y_test, y_pred)
+                r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
             except Exception:
                 # TBD?
                 pass

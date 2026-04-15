@@ -5,6 +5,7 @@ from .metrics import (
     calculate_mse,
     calculate_r2,
     calculate_r,
+    equation_to_metrics
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "calculate_mse",
     "calculate_r2",
     "calculate_r",
+    "equation_to_metrics",
 ]
