@@ -2,35 +2,58 @@ from __future__ import annotations
 import time
 from typing import Any
 import pandas as pd
+import sympy
+import numpy as np
 from symbolic_discovery.algorithms import BACON7F
 from .base import BaseSolver, SolverResult
+from symbolic_discovery.utils import calculate_mse, calculate_r2, calculate_mae
 
 
-class Bacon7FSolver(BaseSolver):
+class BACON7FSolver(BaseSolver):
     """
     Wrapper that adapts the BACON.7F core algorithm to the BaseSolver interface.
     """
-    def __init__(self, noise_level: float = 0.0, **kwargs: Any):
-        # TBD: dynamic hyperparameteres based on noise
-        self.r2_threshold = 0.990 if noise_level == 0.0 else 0.900
-        self.max_depth = kwargs.get("max_depth", 4)
-        self.verbose = kwargs.get("verbose", False)
+    def __init__(self, **kwargs: Any):
+        # TBD: tune params
+        self.max_depth: int = kwargs.get("max_depth", 6)
+        self.initial_epsilon: float = kwargs.get("initial_epsilon", 0.01)
+        self.initial_delta: float = kwargs.get("initial_delta", 0.1)    
+        self.c_val: float = kwargs.get("c_val", 0.05)
+        self.scale_factor: float = kwargs.get("scale_factor", 1.2)
+        self.big_delta: float = kwargs.get("big_delta", 0.1)
+        self.n_folds: int = kwargs.get("n_folds", 5)
+        self.r2_threshold: float = kwargs.get("r2_threshold", 0.9)
+        self.verbose: bool = kwargs.get("verbose", False)
 
 
-    def solve(self, train_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
+    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
+              target_col: str, seed: int) -> SolverResult:
         """
         Run BACON.7F and return the best discovered law as a SolverResult.
         """
         start_time = time.time()
-        model = BACON7F(max_depth=self.max_depth, r2_threshold=self.r2_threshold, verbose=self.verbose)
+        model = BACON7F(max_depth=self.max_depth, initial_epsilon=self.initial_epsilon, 
+                        initial_delta=self.initial_delta, c_val=self.c_val, 
+                        scale_factor=self.scale_factor, big_delta=self.big_delta, 
+                        n_folds=self.n_folds, r2_threshold=self.r2_threshold, 
+                        verbose=self.verbose)
 
+        if target_col not in train_df.columns:
+            return SolverResult(
+                equation="Error",
+                raw_equation=f"Target column '{target_col}' not found in training dataframe",
+                r2=0.0,
+                mse=float("inf"),
+                mae=float("inf"),
+                time_sec=time.time() - start_time,
+                status="Error",
+            )
+        
         try:
-            # Returns (equation_str, diagnostics) for the best discovered law, 
-            # or ("No law found", {...}) on failure.
-            results = model.discover(train_df, target_col, seed=seed)
+            eq, _ = model.discover(train_df, target_col, seed=seed)
             duration = time.time() - start_time
 
-            if results[0] == "No law found":
+            if eq == "No law found":
                 return SolverResult(
                     equation="No law found",
                     raw_equation="No law found",
@@ -38,25 +61,40 @@ class Bacon7FSolver(BaseSolver):
                     mse=float("inf"),
                     mae=float("inf"),
                     time_sec=duration,
-                    status="Failed",
+                    status="Failure",
                 )
             
-            eq, diagnostics = results
             eq_clean = eq  # TBD: For now, just return the raw equation
+
+            # Evaluate on test set if possible
+            r2, mse, mae = 0.0, float("inf"), float("inf")
+            try:
+                rhs = eq_clean.split("=", 1)[-1].strip()
+                local_syms = {col: sympy.Symbol(col) for col in test_df.columns if col != target_col}
+                expr = sympy.sympify(rhs, locals=local_syms, evaluate=False)
+                sym_map = {s: test_df[str(s)].to_numpy() for s in expr.free_symbols}
+                y_pred = sympy.lambdify(list(sym_map.keys()), expr, modules=["numpy"])(*sym_map.values())
+                y_test = test_df[target_col].to_numpy()
+                r2 = calculate_r2(y_test, y_pred)
+                mse = calculate_mse(y_test, y_pred)
+                mae = calculate_mae(y_test, y_pred)
+            except Exception:
+                # TBD?
+                pass
 
             return SolverResult(
                 equation=eq_clean,
                 raw_equation=eq,
-                r2=diagnostics["R-squared"],
-                mse=diagnostics["MSE"],
-                mae=diagnostics["MAE"],
+                r2=r2,
+                mse=mse,
+                mae=mae,
                 time_sec=duration,
-                status="Success",
+                status="Found",
             )
         
         except Exception as e:
             return SolverResult(
-                equation=f"Error: {e}",
+                equation="Error",
                 raw_equation=f"Error: {e}",
                 r2=0.0,
                 mse=float("inf"),
