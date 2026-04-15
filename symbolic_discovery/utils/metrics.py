@@ -47,8 +47,8 @@ def calculate_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     ss_total = np.sum((y_true - y_mean) ** 2)
     ss_residual = np.sum((y_true - y_pred) ** 2)
     
-    if ss_total == 0:
-        return 1.0 if ss_residual == 0 else 0.0
+    if ss_total < 1e-9:
+        return 1.0 if ss_residual < 1e-9 else 0.0
     
     r2 = 1 - (ss_residual / ss_total)
     return float(r2)
