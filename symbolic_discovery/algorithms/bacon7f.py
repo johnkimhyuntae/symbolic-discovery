@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from sympy import Symbol, Expr, symbols
 from typing import Tuple
 from collections import Counter
+from numpy.polynomial import Polynomial
 from ..utils import calculate_mae, calculate_r2, calculate_mse, calculate_r
 
 
@@ -26,11 +27,10 @@ class Term:
 
 class BACON7F:
     """
-    BACON.7F: flat tabular adaptation of Miller's BACON.7 (2024).
+    BACON.7F: a flat tabular adaptation of Miller's BACON.7 (2024).
 
     Extends BACON.3F's pool-based discovery with noise-resilience
-    mechanisms from Miller's factorial-design algorithm, adapted for
-    flat tabular data:
+    mechanisms from Miller and more, adapted for flat tabular data:
 
     1. Subset voting: each directed pair's data is randomly 
     partitioned into n_folds subsamples. The heuristic layer 
@@ -44,47 +44,31 @@ class BACON7F:
     rows are lost. For linear relations the slope is recomputed on 
     full data rather than inheriting a fold-local estimate.
 
-    3. Managing-layer retry (TBD): if no candidates are found, 
-    epsilon and delta are relaxed by a multiplicative scale factor 
-    and the search is retried.
-
-    Key differences from Miller's original BACON.7:
-
-    - Miller's subsets arise from factorial conditioning (holding 
-    other variables fixed at specific levels). Our flat tabular 
-    adaptation uses random partitioning instead, yielding correlated 
-    but distinct estimates of the same bivariate relationship.
-
-    - Miller's linearity check uses correlation coefficient thresholds. 
-    This is more lenient than BACON.3F's IQR-based slope check, 
-    which can cause misclassification of polynomial relationships 
-    as linear (a known limitation documented in Chapter 3).
-
-    - The voting only determines the relation type, not a full Term. 
-    This avoids expensive sympy expression construction in the fold loop. 
-    Terms are only built once by _average on the full data.
+    3. Per-layer threshold relaxation: epsilon and delta are 
+    multiplied by scale_factor at the start of each layer, 
+    compensating for noise propagation through composed variables.
     """
     def __init__(self, 
-                 max_depth: int = 5,
-                 initial_epsilon: float = 0.05,
-                 initial_delta: float = 0.05,    
+                 max_depth: int = 6,
+                 initial_epsilon: float = 0.01,
+                 initial_delta: float = 0.1,    
                  c_val: float = 0.05,
                  scale_factor: float = 1.2,
                  big_delta: float = 0.1,
-                 n_folds: int = 3,
-                 r2_threshold: float = 0.990,
+                 n_folds: int = 5,
+                 r2_threshold: float = 0.9,
                  verbose: bool = False):
         """
         Initialise the BACON.7F solver.
 
+        TBD: For now, defaults assume noisy data.
+
         Args:
             max_depth: Maximum number of discovery layers before stopping.
                 Each layer tests all novel directed pairs and promotes
-                non-constant composites. Deeper layers find more complex
-                laws but scale combinatorially.
+                non-constant composites.
             initial_epsilon: Linearity threshold for the heuristic layer.
-                A pair is deemed linear if 1 - |r| < epsilon. More
-                lenient than BACON.3F's IQR-based check.
+                A pair is deemed linear if 1 - |r| < epsilon.
             initial_delta: Constancy threshold for the heuristic layer.
                 A variable is constant if all values fall within
                 mean x (1 ± delta).
@@ -93,18 +77,16 @@ class BACON7F:
                 as zero and a ratio y/x is preferred over a linear
                 residual y - mx.
             scale_factor: Multiplicative relaxation applied to epsilon
-                and delta after each layer (and on managing-layer retry).
+                and delta at the start of each layer.
             big_delta: Separate threshold for the sufficiency check
-                (Delta-pruning). Not auto-scaled. Currently unused (TBD).
+                (Delta-pruning). Currently unused (TBD).
             n_folds: Number of random folds to partition each
-                directed pair into for voting. Defaults to 3,
-                matching Miller's typical 3-value factorial design.
+                directed pair into for voting. Defaults to 5.
                 Automatically falls back to 1 (no folding) when data
                 is too small for reliable per-fold classification.
             r2_threshold: Minimum predictive R² for early stopping. When
                 a discovered law meets or exceeds this threshold, the
-                search halts immediately. Set by the wrapper based on
-                the expected noise level.
+                search halts immediately.
             verbose: If True, print the decision log to stdout.
         """
         
@@ -148,26 +130,27 @@ class BACON7F:
     
     def _check(self, dependent: Term, independent: Term) -> str:
         """
-        BACON.1 heuristic layer (Miller, 2024).
-
         Classifies the relationship between a dependent and independent
-        term. Unlike BACON.3F's _check (which returns a Term), this
-        returns only a relation type string. The Term construction is
-        deferred to _average, which runs once on full data.
+        term. Returns only a relation type string. The Term construction 
+        is deferred to _average, which runs once on full data.
 
-        Applies three checks in priority order:
+        Applies four checks in this order:
 
         1. **Constancy**: is the dependent already constant within 
-        delta? Near-zero means are handled with an absolute-spread 
-        check to avoid the zero-width-bounds problem.
+            delta? Near-zero means are handled with an absolute-spread 
+            check to avoid the zero-width-bounds problem.
 
         2. **Linearity**: is |r| close to 1 (within epsilon)? This 
-        correlation-based check is more lenient than BACON.3F's 
-        IQR-based slope check.
+            correlation-based check is more lenient than BACON.3F's 
+            IQR-based slope check.
 
-        3. **Monotonic trend**: if non-linear, the correlation sign 
-        determines Ratio (r > 0) or Product (r < 0). Known 
-        expressions are checked to avoid duplicates.
+        3. **Uncorrelatedness**: if the Pearson correlation coefficient 
+           |r| < 0.5, the variables are considered uncorrelated, and no
+           meaningful relationship is proposed.
+
+        4. **Monotonic trend**: if non-linear and correlated, the Pearson 
+           correlation sign determines whether to propose a ratio 
+           (r > 0, co-varying) or product (r < 0, inversely varying).
 
         Args:
             dependent: The term treated as y.
@@ -180,71 +163,66 @@ class BACON7F:
         X = independent.values
         Y = dependent.values
 
-
         # Constancy check
-
         M_Y = float(np.mean(Y))
-        if np.abs(M_Y) < 1e-9:
-            # Near-zero mean: strict inequality on zero-width bounds
-            # would always fail, so check absolute spread instead
-            if np.all(np.abs(Y) < 1e-9):
+        if np.abs(M_Y) < 1e-4:
+            if np.mean(np.abs(Y) < 1e-4) > 0.95:
                 return "Constant"
         else:
             lo, hi = sorted([M_Y * (1 - self.delta), M_Y * (1 + self.delta)])
-            if np.all((Y > lo) & (Y < hi)):
+            if np.mean((Y > lo) & (Y < hi)) > 0.95:
                 return "Constant"
 
-
         # Linearity check
-
         r = calculate_r(X, Y)
         if (1 - abs(r)) < self.epsilon:
             return "Linear"
 
+        # Uncorrelatedness check
+        if abs(r) < 0.5:
+            return "Null"
 
-        # Monotonic trend check
-
+        # Monotonic trend checks
         if r > 0:
             key = f"{dependent.symbol}/{independent.symbol}"
             if key in self.known_expressions:
                 return "Null"
             return "Ratio"
         elif r < 0:
-            key = f"{dependent.symbol}*{independent.symbol}"
-            if key in self.known_expressions:
+            key1 = f"{dependent.symbol}*{independent.symbol}"
+            key2 = f"{independent.symbol}*{dependent.symbol}"
+            if key1 in self.known_expressions or key2 in self.known_expressions:
                 return "Null"
             return "Product"
         
         return "Null"
-
-
-    def _managing_layer(self, dependent: Term, independent: Term) -> str:
-        """
-        Miller's managing layer (TBD: currently a passthrough).
-
-        Wraps the heuristic layer. In Miller's original, this adds an
-        iteration counter j (capping expression complexity at
-        |n| + |m| ≤ j + 1) and retry logic with epsilon/delta scaling
-        per Figure 7 of the manuscript.
-
-        TBD: implement iteration counter and retry logic.
-
-        Args:
-            dependent: The term treated as y.
-            independent: The term treated as x.
-
-        Returns:
-            Relation type string from _check.
-        """
-        # TBD: For now we just directly call the check function and return its result.
-        return self._check(dependent, independent)
     
 
-    def _contains_target(self, expr: Expr) -> bool:
-        """Check whether the target variable appears in expr's free symbols."""
-        if self.target_var is None:
-            return False
-        return self.target_var in expr.free_symbols
+    def _election(self, votes: list[str]) -> str:
+        """
+        Determine the winning relation type from fold votes.
+
+        Args:
+            votes: List of relation type strings from each fold's
+                classification of the same directed pair.
+
+        Returns:
+            The winning relation type after majority vote and tiebreak.
+        """
+        # Constant > Linear > Ratio > Product (most specific wins)
+        RELATION_PRIORITY = {"Constant": 0, "Linear": 1, "Ratio": 2, "Product": 3, "Null": 4}
+
+        vote_counts = Counter(votes)
+        top_count = vote_counts.most_common()[0][1]
+        tied = [rel for rel, count in vote_counts.items() if count == top_count]
+
+        if len(tied) == 1:
+            winning_rel = tied[0]
+        else:
+            # Tiebreak: most specific relation wins
+            winning_rel = min(tied, key=lambda r: RELATION_PRIORITY.get(r, 99))
+        
+        return winning_rel
 
 
     def _average(self, winning_rel: str, dependent: Term, independent: Term) -> Term | None:
@@ -256,7 +234,7 @@ class BACON7F:
         all rows, preserving dataset size.
 
         For "Linear", the slope is computed fresh on full data via
-        polyfit. A sub-check on intercept negligibility (c_val)
+        Polynomial.fit. A sub-check on intercept negligibility (c_val)
         determines whether to produce a ratio (y/x) or a linear
         residual (y - mx).
 
@@ -294,7 +272,7 @@ class BACON7F:
             return Term(term, Y * X)
 
         if winning_rel == "Linear":
-            m, c = np.polyfit(X, Y, 1)
+            c, m = Polynomial.fit(X, Y, 1).convert().coef
             M_Y = float(np.mean(Y))
             if abs(c / (M_Y + 1e-9)) < self.c_val:
                 # Negligible intercept: y ≈ mx -> invariant is y/x
@@ -311,33 +289,11 @@ class BACON7F:
         return None
     
 
-    def _snap_coefficients(self, expr: Expr) -> Expr:
-        """
-        TBD: currently unused.
-        Snap near-integer numeric coefficients to exact integers.
-        E.g. 0.997 to 1, 2.003 to 2, 8.314 to 8.314 (too far from 8).
-        Uses self.delta as the tolerance for snapping.
-
-        Args:
-            expr: A SymPy expression to clean up.
-
-        Returns:
-            The expression with near-integer floats replaced by integers.
-        """
-        replacements = {}
-        for n in expr.atoms(sympy.Number):
-            if not n.is_Float:
-                continue
-            val = float(n)
-            if abs(val) < 1e-9:
-                replacements[n] = sympy.Integer(0)
-                continue
-            nearest = round(val)
-            if nearest == 0:
-                continue
-            if abs(1 - val / nearest) < self.delta:
-                replacements[n] = sympy.Integer(nearest)
-        return expr.xreplace(replacements)
+    def _contains_target(self, expr: Expr) -> bool:
+        """Check whether the target variable appears in expr's free symbols."""
+        if self.target_var is None:
+            return False
+        return self.target_var in expr.free_symbols
 
 
     def _rearrange(self, term: Term) -> Expr | None:
@@ -351,7 +307,7 @@ class BACON7F:
 
         Near-zero constants (|k| < 1e-9) are snapped to exactly zero
         to avoid floating-point artifacts. All floats in the result
-        are rounded to 4 significant figures for readability.
+        are rounded to 4 significant figures of precision for readability.
 
         Args:
             term: A Term whose values are constant, as detected by
@@ -438,10 +394,7 @@ class BACON7F:
 
         The fold-voting architecture means each pair costs n_folds
         heuristic-layer calls instead of one, but these are cheap
-        (no sympy construction). The main scalability bottleneck
-        remains pool growth: deduplication via tried_permutations
-        and known_expressions mitigates this, but deep searches 
-        on multi-variable datasets can be slow.
+        (no sympy construction).
 
         Args:
             data: DataFrame containing all variables including target.
@@ -459,8 +412,16 @@ class BACON7F:
         """
         np.random.seed(seed)
 
-        # TBD: either reinitialise all or none
+        # Reinitialise all internal states for a fresh discovery run.
         self.logs = []
+        self.variable_pool = []
+        self.target_var = None
+        self.target_values = None
+        self.discovered_laws = []
+        self.discovered_strs = set()
+        self.tried_permutations = set()
+        self.known_expressions = set()
+        self.sym_to_vals = {}
         
         self.target_var = symbols(target_col)
         self.target_values = np.asarray(data[target_col].values)
@@ -478,17 +439,15 @@ class BACON7F:
             self._log("Stop: target variable not found")
             return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
         
-        # TBD: small fold sizes break EVERYTHING
-        # Fall back to no folding when data is too small for reliable per-fold classification
-        min_fold_size = 10
-        if len(data) // self.n_folds < min_fold_size:
-            effective_folds = 1
-            self._log(f"  Data too small for folding ({len(data)} rows, {self.n_folds} folds). Falling back to n_folds=1.")
-        else:
-            effective_folds = self.n_folds
+        # Decrease number of folds when data is too small for reliable per-fold classification
+        effective_folds = self.n_folds
+        while len(data) // effective_folds < 10 and effective_folds > 1:
+            effective_folds -= 1
+
+        if effective_folds < self.n_folds:
+            self._log(f"Data too small for folding ({len(data)} rows, {self.n_folds} folds). Falling back to n_folds={effective_folds}.")
 
         self._log(f"Starting discovery. Target: '{str(self.target_var)}'. Seed: {seed}. Shape: {data.shape}")
-
 
         # Main loop
 
@@ -497,9 +456,15 @@ class BACON7F:
 
             candidates_this_layer = []
 
+            # Step 0: Relaxation of parameters
+            # Consolidation for the propagation of noise per layer.
+            self.epsilon *= self.scale_factor
+            self.delta *= self.scale_factor
+            if self.scale_factor != 1.0:
+                self._log(f"Relaxed parameters: epsilon={self.epsilon:.4g}, delta={self.delta:.4g}")
+
 
             # Step 1: Sufficiency check (TBD)
-
             if i != (self.max_depth-1):
                 # TBD
                 pass
@@ -518,41 +483,26 @@ class BACON7F:
                 ind_folds = [independent.values[idx] for idx in idx_folds]
 
 
-                # Step 2: Classify on each fold (Space of Laws)
-
+                # Step 2: Classify on each fold
                 votes = []
                 for subset_idx in range(effective_folds):
                     dep_partitioned = Term(dependent.symbol, dep_folds[subset_idx])
                     ind_partitioned = Term(independent.symbol, ind_folds[subset_idx])
-                    relation_type = self._managing_layer(dep_partitioned, ind_partitioned)
+                    relation_type = self._check(dep_partitioned, ind_partitioned)
                     votes.append(relation_type)
 
                 if not votes:
                     continue
-                
+
 
                 # Step 3: Majority vote with priority tiebreak
-
-                # Constant > Linear > Ratio > Product (most specific wins)
-                RELATION_PRIORITY = {"Constant": 0, "Linear": 1, "Ratio": 2, "Product": 3, "Null": 4}
-
-                vote_counts = Counter(votes)
-                top_count = vote_counts.most_common()[0][1]
-                tied = [rel for rel, count in vote_counts.items() if count == top_count]
-
-                if len(tied) == 1:
-                    winning_rel = tied[0]
-                else:
-                    # Tiebreak: most specific relation wins
-                    winning_rel = min(tied, key=lambda r: RELATION_PRIORITY.get(r, 99))
+                winning_rel = self._election(votes)
 
                 if winning_rel is None or winning_rel == "Null":
-                    self._log(f"  No consensus for {dependent.symbol}, {independent.symbol}")
                     continue
                     
                 
                 # Step 4: Apply winning structure to full data 
-
                 averaged_term = self._average(winning_rel, dependent, independent)
 
                 if averaged_term is None:
@@ -560,10 +510,9 @@ class BACON7F:
 
                 # Handle discovered laws
                 if winning_rel == "Constant":
+                    self.known_expressions.add(str(averaged_term.symbol))
                     if self._contains_target(averaged_term.symbol) and str(averaged_term.symbol) not in self.discovered_strs:
-                        self._log(f"  Discovered law: {str(averaged_term.symbol)} = {np.mean(averaged_term.values)}")
                         self.discovered_strs.add(str(averaged_term.symbol))
-                        self.known_expressions.add(str(averaged_term.symbol))
 
                         # Rearrange to target = f(other vars) and evaluate
                         rearranged = self._rearrange(averaged_term)
@@ -584,7 +533,6 @@ class BACON7F:
                     continue
 
                 # Non-constant: promote composite into pool for next layer
-                self._log(f"  Candidate: {averaged_term.symbol} via {winning_rel}")
                 self.known_expressions.add(str(averaged_term.symbol))
                 candidates_this_layer.append(averaged_term)
 
@@ -601,5 +549,5 @@ class BACON7F:
             return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
 
         self.discovered_laws.sort(key=lambda x: (-x[1]["R-squared"], x[1]["MSE"]))
-        self._log(f"Discovery complete: {self.discovered_laws[0][0]} with R²={self.discovered_laws[0][1]['R-squared']:.4f}")
+        self._log(f"Discovery complete: {self.discovered_laws[0][0]} with R²={self.discovered_laws[0][1]['R-squared']:.4f} with {len(self.variable_pool)} total expressions in pool.")
         return self.discovered_laws[0]
