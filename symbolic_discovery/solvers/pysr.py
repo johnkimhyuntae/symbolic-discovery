@@ -88,6 +88,7 @@ class PySRSolver(BaseSolver):
     """Wrapper for PySR, standardised to the BaseSolver interface."""
 
     def __init__(self, **kwargs: Any):
+        # TODO: expose params
         self.verbose = kwargs.get("verbose", False)
 
     def solve(
@@ -119,7 +120,7 @@ class PySRSolver(BaseSolver):
             "random_state": seed,
             "temp_equation_file": True,
             "delete_tempfiles": True,
-            "maxdepth": 6, # TBD: let me make same to BACONs
+            "maxdepth": 6, # same as default max_depth for BACON.3F and BACON.7F
         }
 
         model = PySRRegressor(**params)
@@ -135,7 +136,7 @@ class PySRSolver(BaseSolver):
                 status="Error",
             )
 
-        # Metrics TBD TBD
+        # Metrics TODO?
         r2, mse, mae = 0.0, float("inf"), float("inf")
         try:
             y_test = test_df[target_col].to_numpy(copy=True)

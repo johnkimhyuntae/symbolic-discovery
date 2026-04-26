@@ -52,25 +52,37 @@ class BACON3FSolver(BaseSolver):
                     status="Failure",
                 )
             
-            eq_clean = eq  # TBD: For now, just return the raw equation
+            eq_clean = eq  # TODO: For now, just return the raw equation
 
             # Evaluate on test set if possible
             r2, mse, mae = 0.0, float("inf"), float("inf")
             try:
                 r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
             except Exception:
-                # TBD?
+                # TODO?
                 pass
 
-            return SolverResult(
-                equation=eq_clean,
-                raw_equation=eq,
-                r2=r2,
-                mse=mse,
-                mae=mae,
-                time_sec=duration,
-                status="Found",
-            )
+            if r2 < 0.0:
+                return SolverResult(
+                    equation=eq_clean,
+                    raw_equation=eq,
+                    r2=r2,
+                    mse=mse,
+                    mae=mae,
+                    time_sec=duration,
+                    status="Failure",
+                )
+            
+            else:
+                return SolverResult(
+                    equation=eq_clean,
+                    raw_equation=eq,
+                    r2=r2,
+                    mse=mse,
+                    mae=mae,
+                    time_sec=duration,
+                    status="Found",
+                )
         
         except Exception as e:
             return SolverResult(
