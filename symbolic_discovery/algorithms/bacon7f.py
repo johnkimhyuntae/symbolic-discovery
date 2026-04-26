@@ -54,14 +54,13 @@ class BACON7F:
                  initial_delta: float = 0.1,    
                  c_val: float = 0.05,
                  scale_factor: float = 1.2,
-                 big_delta: float = 0.1,
                  n_folds: int = 5,
                  r2_threshold: float = 0.9,
                  verbose: bool = False):
         """
         Initialise the BACON.7F solver.
 
-        TBD: For now, defaults assume noisy data.
+        TODO: For now, defaults assume noisy data.
 
         Args:
             max_depth: Maximum number of discovery layers before stopping.
@@ -78,8 +77,6 @@ class BACON7F:
                 residual y - mx.
             scale_factor: Multiplicative relaxation applied to epsilon
                 and delta at the start of each layer.
-            big_delta: Separate threshold for the sufficiency check
-                (Delta-pruning). Currently unused (TBD).
             n_folds: Number of random folds to partition each
                 directed pair into for voting. Defaults to 5.
                 Automatically falls back to 1 (no folding) when data
@@ -95,7 +92,6 @@ class BACON7F:
         self.delta = initial_delta
         self.c_val = c_val
         self.scale_factor = scale_factor
-        self.big_delta = big_delta
         self.n_folds = n_folds
         self.r2_threshold = r2_threshold
         self.verbose = verbose
@@ -284,6 +280,8 @@ class BACON7F:
                 # Significant intercept: invariant is y − mx
                 m_sym = float(f"{m:.4g}")
                 term = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
+                if str(term) in self.known_expressions:
+                    return None
                 return Term(term, Y - m * X)
 
         return None
@@ -456,18 +454,12 @@ class BACON7F:
 
             candidates_this_layer = []
 
-            # Step 0: Relaxation of parameters
+            # Step 1: Relaxation of parameters
             # Consolidation for the propagation of noise per layer.
             self.epsilon *= self.scale_factor
             self.delta *= self.scale_factor
             if self.scale_factor != 1.0:
                 self._log(f"Relaxed parameters: epsilon={self.epsilon:.4g}, delta={self.delta:.4g}")
-
-
-            # Step 1: Sufficiency check (TBD)
-            if i != (self.max_depth-1):
-                # TBD
-                pass
 
             for (dependent, independent) in permutations(self.variable_pool, 2):
                 # Skip pairs already checked in previous layers

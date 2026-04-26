@@ -12,13 +12,12 @@ class BACON7FSolver(BaseSolver):
     Wrapper that adapts the BACON.7F core algorithm to the BaseSolver interface.
     """
     def __init__(self, **kwargs: Any):
-        # TBD: tune params
+        # TODO: tune params
         self.max_depth: int = kwargs.get("max_depth", 6)
         self.initial_epsilon: float = kwargs.get("initial_epsilon", 0.01)
         self.initial_delta: float = kwargs.get("initial_delta", 0.1)    
         self.c_val: float = kwargs.get("c_val", 0.05)
         self.scale_factor: float = kwargs.get("scale_factor", 1.2)
-        self.big_delta: float = kwargs.get("big_delta", 0.1)
         self.n_folds: int = kwargs.get("n_folds", 5)
         self.r2_threshold: float = kwargs.get("r2_threshold", 0.9)
         self.verbose: bool = kwargs.get("verbose", False)
@@ -32,9 +31,8 @@ class BACON7FSolver(BaseSolver):
         start_time = time.time()
         model = BACON7F(max_depth=self.max_depth, initial_epsilon=self.initial_epsilon, 
                         initial_delta=self.initial_delta, c_val=self.c_val, 
-                        scale_factor=self.scale_factor, big_delta=self.big_delta, 
-                        n_folds=self.n_folds, r2_threshold=self.r2_threshold, 
-                        verbose=self.verbose)
+                        scale_factor=self.scale_factor, n_folds=self.n_folds, 
+                        r2_threshold=self.r2_threshold, verbose=self.verbose)
 
         if target_col not in train_df.columns:
             return SolverResult(
@@ -62,25 +60,37 @@ class BACON7FSolver(BaseSolver):
                     status="Failure",
                 )
             
-            eq_clean = eq  # TBD: For now, just return the raw equation
+            eq_clean = eq  # TODO: For now, just return the raw equation
 
             # Evaluate on test set if possible
             r2, mse, mae = 0.0, float("inf"), float("inf")
             try:
                 r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
             except Exception:
-                # TBD?
+                # TODO?
                 pass
-
-            return SolverResult(
-                equation=eq_clean,
-                raw_equation=eq,
-                r2=r2,
-                mse=mse,
-                mae=mae,
-                time_sec=duration,
-                status="Found",
-            )
+            
+            if r2 < 0.0:
+                return SolverResult(
+                    equation=eq_clean,
+                    raw_equation=eq,
+                    r2=r2,
+                    mse=mse,
+                    mae=mae,
+                    time_sec=duration,
+                    status="Failure",
+                )
+            
+            else:
+                return SolverResult(
+                    equation=eq_clean,
+                    raw_equation=eq,
+                    r2=r2,
+                    mse=mse,
+                    mae=mae,
+                    time_sec=duration,
+                    status="Found",
+                )
         
         except Exception as e:
             return SolverResult(

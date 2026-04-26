@@ -126,7 +126,7 @@ def load_data(
     family: str,
     n_samples: int,
     seed: int,
-    target: str = "y",
+    target: str,
 ) -> pd.DataFrame:
     """Read *n_samples* rows from a whitespace-delimited data file.
 

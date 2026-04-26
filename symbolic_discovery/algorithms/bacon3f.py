@@ -54,7 +54,7 @@ class BACON3F:
         """
         Initialise the BACON.3F solver.
 
-        TBD: For now, defaults assume noisy data.
+        TODO: For now, defaults assume noisy data.
 
         Args:
             max_depth: Maximum number of discovery layers before stopping.
@@ -95,7 +95,7 @@ class BACON3F:
 
     def _log(self, message: str):
         """Append to the decision log; print if verbose."""
-        # TBD: add another level of verbosity
+        # TODO: add another level of verbosity
         self.logs.append(message)
         if self.verbose:
             if message:
@@ -187,7 +187,7 @@ class BACON3F:
                 new_expr = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
                 vals = Y - m * X
                 return (Term(new_expr, vals), "Linear")
-
+        
         r = calculate_r(X, Y)
 
         # Uncorrelatedness check
@@ -327,6 +327,7 @@ class BACON3F:
         np.random.seed(seed)
 
         # Reinitialise all internal states for a fresh discovery run.
+        # TODO: do these really need to be instance variables if they're all reset here? Could they just be local variables within discover()?
         self.logs = []
         self.variable_pool = []
         self.target_var = None
@@ -366,40 +367,43 @@ class BACON3F:
                 # Skip pairs already checked in previous layers
                 if (str(dependent.symbol), str(independent.symbol)) in self.tried_permutations:
                     continue
+
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
 
                 result, relation_type = self._check(dependent, independent)
 
-                if result is not None:
-                    if relation_type == "Constant":
-                        # Only record laws that involve the target variable
-                        if self._contains_target(result.symbol) and str(result.symbol) not in self.discovered_strs:
-                            # TBD: loud
-                            # self._log(f"  Discovered law: {str(result.symbol)} = {np.mean(result.values):.4g}")
-                            self.discovered_strs.add(str(result.symbol))
-                            self.known_expressions.add(str(result.symbol))
+                if result is None:
+                    continue
 
-                            # Rearrange to target = f(other vars) and evaluate
-                            rearranged = self._rearrange(result)
-                            if rearranged is None:
-                                eq_str = f"{result.symbol} = {np.mean(result.values):.4g}"
-                            else:
-                                eq_str = f"{self.target_var} = {rearranged}"
+                if relation_type == "Constant":
+                    # Only record laws that involve the target variable
+                    if self._contains_target(result.symbol) and str(result.symbol) not in self.discovered_strs:
+                        # TODO: loud
+                        # self._log(f"  Discovered law: {str(result.symbol)} = {np.mean(result.values):.4g}")
+                        self.discovered_strs.add(str(result.symbol))
+                        self.known_expressions.add(str(result.symbol))
 
-                            diagnostics = self._get_diagnostics(rearranged)
-                            self.discovered_laws.append((eq_str, diagnostics))
+                        # Rearrange to target = f(other vars) and evaluate
+                        rearranged = self._rearrange(result)
+                        if rearranged is None:
+                            eq_str = f"{result.symbol} = {np.mean(result.values):.4g}"
+                        else:
+                            eq_str = f"{self.target_var} = {rearranged}"
 
-                            # Early stop if law is good enough
-                            if diagnostics["R-squared"] >= self.r2_threshold:
-                                self._log(f"Discovery complete: {eq_str} with R²={diagnostics['R-squared']:.4f}. Early stop at layer {i+1}.")
-                                return eq_str, diagnostics
-                            
-                        # Constants are never promoted as candidates
-                        continue
+                        diagnostics = self._get_diagnostics(rearranged)
+                        self.discovered_laws.append((eq_str, diagnostics))
 
-                    # Non-constant: promote composite into pool for next layer
-                    self.known_expressions.add(str(result.symbol))
-                    candidates_this_layer.append(result)
+                        # Early stop if law is good enough
+                        if diagnostics["R-squared"] >= self.r2_threshold:
+                            self._log(f"Discovery complete: {eq_str} with R²={diagnostics['R-squared']:.4f}. Early stop at layer {i+1}.")
+                            return eq_str, diagnostics
+                        
+                    # Constants are never promoted as candidates
+                    continue
+
+                # Non-constant: promote composite into pool for next layer
+                self.known_expressions.add(str(result.symbol))
+                candidates_this_layer.append(result)
 
             if not candidates_this_layer:
                 self._log("Stop: no new composites generated")
