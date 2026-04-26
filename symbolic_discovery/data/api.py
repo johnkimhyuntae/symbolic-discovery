@@ -19,15 +19,40 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 
 from .catalogue import CATALOGUE, DatasetConfig
 from . import feynman as _feyn
 from . import custom as _custom
-from .synthetic import generate, inject_noise
+from .synthetic import generate
 
 
 _KEY_RE = re.compile(r"^([STFB])(\d+)$")
 _FAMILY_RE = re.compile(r"^[STFB]$")
+
+
+# Noise injection
+
+def inject_noise(
+    df: pd.DataFrame,
+    target: str,
+    noise_level: float,
+    seed: int,
+) -> pd.DataFrame:
+    """Add Gaussian noise scaled to the target column's range.
+
+    Returns *df* unchanged when *noise_level* <= 0.
+    """
+    if noise_level <= 0.0 or target not in df.columns:
+        return df
+    y = df[target].to_numpy()
+    y_range = float(np.ptp(y))
+    scale = y_range if y_range > 1e-9 else 1.0
+    rng = np.random.default_rng(seed)
+    out = df.copy()
+    # TODO: made multiplicative for now
+    out[target] = y * (1 + rng.normal(0.0, noise_level, len(y)))
+    return out
 
 
 # Expand datasets
@@ -104,6 +129,7 @@ def resolve(
 
         eq_id = str(row["Filename"]).strip()
         formula = (row.get("Formula", "") or "").strip() or "Unknown"
+        target_var = (row.get("Output", "") or "").strip() or "y"
         variables = _feyn.extract_variables(row)
 
         return DatasetConfig(
@@ -111,7 +137,7 @@ def resolve(
             eq_id=eq_id,
             family=family,
             variables=variables,
-            target="y",
+            target=target_var,
             formula=formula,
         )
 
@@ -133,9 +159,11 @@ def load(
     Returns ``(train_df, test_df, pretty_map)`` where 
     data split is 0.8 and *pretty_map* is ``None`` for S/T/C.
     """
-    # S / T — synthetic generation (handles noise internally)
+    # S / T — synthetic generation
     if config.family in ("S", "T"):
         df = generate(config, noise_level=noise, n_samples=n_samples, seed=seed)
+        if noise > 0:
+            df = inject_noise(df, config.target, noise, seed)
         return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
     # C — custom CSV
@@ -145,7 +173,7 @@ def load(
             df = inject_noise(df, config.target, noise, seed)
         return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
-    # F / B — file-backed
+    # F / B — feynman databases
     df = _feyn.load_data(
         config.eq_id, feynman_root, config.family, n_samples, seed,
         target=config.target,
@@ -153,8 +181,8 @@ def load(
     if noise > 0:
         df = inject_noise(df, config.target, noise, seed)
 
-    feature_cols = [c for c in df.columns if c != config.target]
-    pretty_map = _build_pretty_map(config.variables, feature_cols)
+    feature_cols = [c for c in df.columns]
+    pretty_map = _build_pretty_map(config.variables + [config.target], feature_cols)
     return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], pretty_map
 
 
