@@ -13,6 +13,7 @@ readme = "README.md"
 dependencies = [
 	"numpy>=1.23",
 	"pandas>=1.5",
+	"PyYAML>=6.0",
 	"scipy>=1.9",
 	"sympy>=1.10",
 	"rich>=13.0",
