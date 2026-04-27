@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from typing import Tuple
 
 from .catalogue import DatasetConfig
 
@@ -14,8 +13,7 @@ from .catalogue import DatasetConfig
 def generate(
     config: DatasetConfig,
     *,
-    noise_level: float = 0.0,
-    n_samples: int = 10000,
+    n_samples: int = 1000,
     seed: int = 42,
 ) -> pd.DataFrame:
     """Generate a synthetic DataFrame from a catalogue config."""
