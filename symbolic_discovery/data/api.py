@@ -36,22 +36,26 @@ _FAMILY_RE = re.compile(r"^[STFB]$")
 def inject_noise(
     df: pd.DataFrame,
     target: str,
-    noise_level: float,
-    seed: int,
+    noise: float = 0.0,
+    noise_type: str = "multiplicative",
+    seed: int = 42,
 ) -> pd.DataFrame:
-    """Add Gaussian noise scaled to the target column's range.
-
-    Returns *df* unchanged when *noise_level* <= 0.
     """
-    if noise_level <= 0.0 or target not in df.columns:
+    Add Gaussian noise scaled to the target column's range.
+
+    Returns *df* unchanged when *noise* <= 0.
+    """
+    if noise <= 0.0 or target not in df.columns:
         return df
     y = df[target].to_numpy()
     y_range = float(np.ptp(y))
     scale = y_range if y_range > 1e-9 else 1.0
     rng = np.random.default_rng(seed)
     out = df.copy()
-    # TODO: made multiplicative for now
-    out[target] = y * (1 + rng.normal(0.0, noise_level, len(y)))
+    if noise_type == "multiplicative":
+        out[target] = y * (1 + rng.normal(0.0, noise, len(y)))
+    else:
+        out[target] = y + rng.normal(0.0, noise * scale, len(y))
     return out
 
 
@@ -93,7 +97,8 @@ def resolve(
     feynman_root: str = "feynman",
     target: str | None = None,
 ) -> DatasetConfig:
-    """Resolve any dataset key to a :class:`DatasetConfig`.
+    """
+    Resolve any dataset key to a :class:`DatasetConfig`.
 
     Supports ``S1``-``S4``, ``T1``-``T5``, ``F1``-``F100``, ``B1``-``B20``,
     and paths to custom ``.csv`` files (requires *target*).
@@ -150,27 +155,29 @@ def load(
     config: DatasetConfig,
     *,
     noise: float = 0.0,
+    noise_type: str = "multiplicative",
     seed: int = 42,
     n_samples: int = 1000,
     feynman_root: str = "feynman",
 ) -> tuple[pd.DataFrame, pd.DataFrame, Optional[dict[str, str]]]:
-    """Load data for any dataset.
+    """
+    Load data for any dataset.
 
     Returns ``(train_df, test_df, pretty_map)`` where 
     data split is 0.8 and *pretty_map* is ``None`` for S/T/C.
     """
     # S / T — synthetic generation
     if config.family in ("S", "T"):
-        df = generate(config, noise_level=noise, n_samples=n_samples, seed=seed)
+        df = generate(config, n_samples=n_samples, seed=seed)
         if noise > 0:
-            df = inject_noise(df, config.target, noise, seed)
+            df = inject_noise(df, config.target, noise, noise_type, seed)
         return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
     # C — custom CSV
     if config.family == "C":
         df = _custom.load_csv(config.eq_id, n_samples=n_samples)
         if noise > 0:
-            df = inject_noise(df, config.target, noise, seed)
+            df = inject_noise(df, config.target, noise, noise_type, seed)
         return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
     # F / B — feynman databases
@@ -179,7 +186,7 @@ def load(
         target=config.target,
     )
     if noise > 0:
-        df = inject_noise(df, config.target, noise, seed)
+        df = inject_noise(df, config.target, noise, noise_type, seed)
 
     feature_cols = [c for c in df.columns]
     pretty_map = _build_pretty_map(config.variables + [config.target], feature_cols)

@@ -2,10 +2,22 @@
 """
 Results viewer for symbolic-discovery experiment output.
 
-Displays per-model, per-condition tables from a results CSV.
+Two modes:
+
+    default   one table per (variant, noise, noise_type, n_samples, seed),
+              with datasets as rows. Shows every cell in the experiment
+              grid at full per-seed granularity.
+
+    stats     aggregates over seeds and datasets: one row per
+              (variant, noise, noise_type, n_samples) cell. Printed and
+              saved to ``<input>_stats.csv`` next to the input file.
 """
 
+from __future__ import annotations
+
 import argparse
+import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -15,29 +27,40 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
+from symbolic_discovery.analysis import (
+    aggregate_seeds,
+    success_rate,
+    successful,
+)
+
 console = Console()
 
-# Helpers
+
+# Formatting helpers
 
 def _equation_col(df: pd.DataFrame) -> str:
-    """Return whichever equation column the CSV actually has."""
+    """Whichever equation column the CSV actually has."""
     for c in ("equation", "best_equation"):
         if c in df.columns:
             return c
     return ""
 
 
-def _evaluation(status: str, r2: str) -> Text:
-    if status == "Found":
-        if float(r2) > 0.999:
-            return Text("Perfect", style="blue")
-        elif float(r2) > 0.900:
-            return Text("Good", style="green")
-        elif float(r2) > 0.500:
-            return Text("Poor", style="yellow")
-        else:
-            return Text("Bad", style="red")
-    return Text("Fail", style="bold red")
+def _evaluation(status: str, r2_str: str) -> Text:
+    """Colour-coded grade based on status and R²."""
+    if status != "Found":
+        return Text("Fail", style="bold red")
+    try:
+        v = float(r2_str)
+    except (TypeError, ValueError):
+        return Text("?", style="dim")
+    if v > 0.999:
+        return Text("Perfect", style="blue")
+    if v > 0.900:
+        return Text("Good", style="green")
+    if v > 0.500:
+        return Text("Poor", style="yellow")
+    return Text("Bad", style="red")
 
 
 def _fmt(val, fmt: str = ".4f") -> str:
@@ -52,335 +75,215 @@ def _fmt(val, fmt: str = ".4f") -> str:
         return str(val)
 
 
-def _truncate(s: str, n: int) -> str:
-    s = str(s)
-    return s if len(s) <= n else s[: n - 1] + "…"
-
-
 def _fmt_time(val) -> str:
     f = _fmt(val, ".3f")
     return f"{f}s" if f != "—" else "—"
 
 
-def _noise_seed_title(noise, seed, has_seed: bool) -> str:
-    """Format a (noise, seed) pair into a subtitle string."""
-    s = f"noise={_fmt(noise, '.2f')}"
-    if has_seed:
-        seed_s = str(int(seed)) if pd.notna(seed) else "?"
-        s += f"  seed={seed_s}"
-    return s
+def _truncate(s: str, n: int) -> str:
+    s = str(s)
+    return s if len(s) <= n else s[: n - 1] + "…"
 
 
-# Stats footer
-
-def _stats_table(group: pd.DataFrame) -> Table:
-    """One-row stats table shown beneath a results table."""
-    total = len(group)
-    total_found = int((group["status"] == "Found").sum())
-    failures = total - total_found
-    ok = group[group["status"] == "Found"]
-    has_r2 = "r2" in group.columns
-    has_time = "time_s" in group.columns
-
-    r2_vals = pd.to_numeric(ok["r2"], errors="coerce").dropna() if has_r2 and not ok.empty else pd.Series(dtype=float)
-    time_vals = pd.to_numeric(group["time_s"], errors="coerce").dropna() if has_time else pd.Series(dtype=float)
-
-    t = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
-    t.add_column("Runs", justify="right")
-    t.add_column("Found", justify="right")
-    t.add_column("Perfect", justify="right")
-    t.add_column("Good", justify="right")
-    t.add_column("Poor", justify="right")
-    t.add_column("Bad", justify="right")
-    t.add_column("Failed", justify="right")
-    t.add_column("Fail Rate", justify="right")
-    if has_r2:
-        t.add_column("Mean R²", justify="right")
-        t.add_column("Min R²", justify="right")
-    if has_time:
-        t.add_column("Mean time", justify="right")
-        t.add_column("Total time", justify="right")
-
-    row: list[str | Text] = [
-        str(total),
-        Text(str(total_found)),
-        Text(str((r2_vals > 0.999).sum()), style="blue" if (r2_vals > 0.999).sum() else "dim"),
-        Text(str(((0.999 >= r2_vals) & (r2_vals > 0.900)).sum()), style="green" if ((0.999 >= r2_vals) & (r2_vals > 0.900)).sum() else "dim"),
-        Text(str(((0.900 >= r2_vals) & (r2_vals > 0.500)).sum()), style="yellow" if ((0.900 >= r2_vals) & (r2_vals > 0.500)).sum() else "dim"),
-        Text(str((r2_vals <= 0.500).sum()), style="red" if (r2_vals <= 0.500).sum() else "dim"),
-        Text(str(failures), style="red" if failures else "dim"),
-        f"{failures / total * 100:.1f}%" if total else "—",
-    ]
-    if has_r2:
-        row.append(_fmt(r2_vals.mean()) if not r2_vals.empty else "—")
-        row.append(_fmt(r2_vals.min()) if not r2_vals.empty else "—")
-    if has_time:
-        row.append(f"{time_vals.mean():.3f}s" if not time_vals.empty else "—")
-        row.append(f"{time_vals.sum():.2f}s" if not time_vals.empty else "—")
-
-    t.add_row(*row)
-    return t
+def _params_label(params_json) -> str:
+    """Compact ``k=v, k=v`` rendering of a params_json string."""
+    if not isinstance(params_json, str) or not params_json or params_json == "{}":
+        return ""
+    try:
+        d = json.loads(params_json)
+    except json.JSONDecodeError:
+        return ""
+    if not d:
+        return ""
+    return ", ".join(f"{k}={v}" for k, v in sorted(d.items()))
 
 
-# Group key helpers
+def _cell_subtitle(noise, noise_type, n_samples, seed) -> str:
+    """Format the (noise, noise_type, n_samples, seed) coordinates of a cell."""
+    parts = [f"noise={_fmt(noise, '.3g')}"]
+    if pd.notna(noise_type):
+        parts.append(str(noise_type))
+    if pd.notna(n_samples):
+        try:
+            parts.append(f"n={int(n_samples)}")
+        except (ValueError, TypeError):
+            pass
+    if pd.notna(seed):
+        try:
+            parts.append(f"seed={int(seed)}")
+        except (ValueError, TypeError):
+            pass
+    return "  ".join(parts)
 
-def _model_group_cols(df: pd.DataFrame) -> list[str]:
-    """Group columns for concise/full: (method, noise[, seed])."""
-    cols = ["method", "noise"]
-    if "seed" in df.columns:
-        cols.append("seed")
-    return cols
+
+_DS_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
-def _compare_group_cols(df: pd.DataFrame) -> list[str]:
-    """Group columns for compare: (noise[, seed])."""
-    cols = ["noise"]
-    if "seed" in df.columns:
-        cols.append("seed")
-    return cols
+def _dataset_sort_key(s) -> tuple:
+    """Sort dataset keys naturally: S1, S2, ..., S10, T1, ..., F1, F2, ..., F11."""
+    m = _DS_RE.match(str(s))
+    if m:
+        return (m.group(1), int(m.group(2)))
+    return (str(s), 0)
 
 
-# Concise mode
+# Default mode: one table per cell
 
-def _view_concise(df: pd.DataFrame) -> None:
+DEFAULT_GROUP_COLS = ("variant", "noise", "noise_type", "n_samples", "seed")
+
+
+def _view_default(df: pd.DataFrame) -> None:
     eq_col = _equation_col(df)
-    has_seed = "seed" in df.columns
-    group_cols = _model_group_cols(df)
+    group_cols = [c for c in DEFAULT_GROUP_COLS if c in df.columns]
+    has_r2 = "r2" in df.columns
+    has_time = "time_s" in df.columns
 
-    for group_key, group in df.groupby(group_cols, sort=True):
-        keys: tuple[Any, ...] = group_key if isinstance(group_key, tuple) else (group_key,)
-        method, noise = keys[0], keys[1]
-        seed = keys[2] if has_seed else None
+    for group_key, group in df.groupby(group_cols, sort=True, dropna=False):
+        keys = group_key if isinstance(group_key, tuple) else (group_key,)
+        kv = dict(zip(group_cols, keys))
 
-        subtitle = _noise_seed_title(noise, seed, has_seed)
-        group = group.sort_values("dataset") # TBD: better sorting
+        params = ""
+        if "params_json" in group.columns:
+            params = _params_label(group["params_json"].iloc[0])
+
+        title = f"{kv.get('variant', '?')}"
+        if params:
+            title += f"  [dim]({params})[/dim]"
+        subtitle = _cell_subtitle(
+            kv.get("noise"), kv.get("noise_type"),
+            kv.get("n_samples"), kv.get("seed"),
+        )
+
+        group = group.assign(
+            _sort=group["dataset"].map(_dataset_sort_key),
+        ).sort_values("_sort").drop(columns="_sort")
 
         t = Table(
-            title=f"  {method}  [dim]{subtitle}[/dim]",
+            title=f"  {title}  [dim]{subtitle}[/dim]",
             title_style="bold cyan",
             box=box.ROUNDED,
             show_lines=False,
             padding=(0, 1),
         )
-
         t.add_column("Dataset", style="bold")
         t.add_column("Grade", justify="center")
         if eq_col:
             t.add_column("Equation")
-        if "r2" in group.columns:
+        if has_r2:
             t.add_column("R²", justify="right")
-        if "time_s" in group.columns:
+        if has_time:
             t.add_column("Time", justify="right", style="dim")
 
         for _, row in group.iterrows():
-            cells: list[str | Text] = [str(row["dataset"])]
-            if "r2" in group.columns:
-                cells.append(_evaluation(row["status"], _fmt(row["r2"])))
+            cells: list[Any] = [str(row["dataset"])]
+            cells.append(_evaluation(row.get("status", ""), _fmt(row.get("r2", ""))))
             if eq_col:
-                cells.append(_truncate(row.get(eq_col, ""), 52))
-            if "r2" in group.columns:
+                cells.append(_truncate(row.get(eq_col, ""), 60))
+            if has_r2:
                 cells.append(_fmt(row["r2"]))
-            if "time_s" in group.columns:
+            if has_time:
                 cells.append(_fmt_time(row["time_s"]))
             t.add_row(*cells)
 
         console.print(t)
-        console.print(_stats_table(group))
         console.print()
 
 
-# Full mode
+# Stats mode: aggregate over seeds and datasets, save to CSV
 
-def _view_full(df: pd.DataFrame) -> None:
-    eq_col = _equation_col(df)
-    has_seed = "seed" in df.columns
-    group_cols = _model_group_cols(df)
-
-    # Columns to show per row (method, noise, seed are in the title)
-    show_order = [
-        "run_id", "dataset", "grade",
-        eq_col, "raw_equation",
-        "r2", "mse", "mae", "time_s",
-    ]
-    show_order = [c for c in show_order if c and (c in df.columns or c == "grade")]
-
-    wide = Console(width=max(console.width, 160))
-
-    for group_key, group in df.groupby(group_cols, sort=True):
-        keys: tuple[Any, ...] = group_key if isinstance(group_key, tuple) else (group_key,)
-        method, noise = keys[0], keys[1]
-        seed = keys[2] if has_seed else None
-
-        subtitle = _noise_seed_title(noise, seed, has_seed)
-        group = group.sort_values("dataset")
-
-        t = Table(
-            title=f"  {method}  [dim]{subtitle}[/dim]",
-            title_style="bold cyan",
-            box=box.ROUNDED,
-            show_lines=True,
-            padding=(0, 1),
-        )
-
-        for col in show_order:
-            justify = "right" if col in ("r2", "mse", "mae", "time_s") else "left"
-            nowrap = col not in (eq_col, "raw_equation")
-            t.add_column(col, justify=justify, no_wrap=nowrap)
-
-        for _, row in group.iterrows():
-            cells: list[str | Text] = []
-            for col in show_order:
-                val = row.get(col, "")
-                if col == "grade":
-                    cells.append(_evaluation(row["status"], _fmt(row["r2"])))
-                elif col in ("r2", "mse", "mae"):
-                    cells.append(_fmt(val))
-                elif col == "time_s":
-                    cells.append(_fmt_time(val))
-                else:
-                    cells.append(str(val) if pd.notna(val) else "—")
-            t.add_row(*cells)
-
-        wide.print(t)
-        wide.print(_stats_table(group))
-        wide.print()
+# Group keys for stats: every cell axis except 'seed' and 'dataset'.
+STATS_GROUP_COLS = ("variant", "method", "noise", "noise_type", "n_samples")
 
 
-# Compare mode
+def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
+    group_by = [c for c in STATS_GROUP_COLS if c in df.columns]
 
-def _view_compare(df: pd.DataFrame) -> None:
-    eq_col = _equation_col(df)
-    methods = sorted(df["method"].unique())
-    has_r2 = "r2" in df.columns
-    has_time = "time_s" in df.columns
-    has_seed = "seed" in df.columns
-    group_cols = _compare_group_cols(df)
+    # Total counts and success rate over all rows.
+    sr = success_rate(df, by=group_by)
 
-    wide = Console(width=max(console.width, 160))
+    # Quality metrics computed only over successful runs — failed rows
+    # have r2=0.0 / mse=inf / mae=inf and would poison the means.
+    found = successful(df)
+    quality = aggregate_seeds(found, group_by=group_by).rename(
+        columns={"n_runs": "n_found"}
+    )
 
-    # One table per (noise, seed)
+    # Left-merge: every cell from sr; metric NaNs where zero successes.
+    cell = sr.merge(quality, on=group_by, how="left")
+    cell["n_found"] = cell["n_found"].fillna(0).astype(int)
 
-    for group_key, cond_group in df.groupby(group_cols, sort=True):
-        keys: tuple[Any, ...] = group_key if isinstance(group_key, tuple) else (group_key,)
-        noise = keys[0]
-        seed = keys[1] if has_seed else None
+    # Sort by variant, then noise, for stable output.
+    sort_cols = [c for c in ("variant", "noise") if c in cell.columns]
+    if sort_cols:
+        cell = cell.sort_values(sort_cols).reset_index(drop=True)
 
-        subtitle = _noise_seed_title(noise, seed, has_seed)
-        datasets = sorted(cond_group["dataset"].unique())
-        indexed = cond_group.set_index(["dataset", "method"])
-
-        t = Table(
-            title=f"  {subtitle}",
-            title_style="bold cyan",
-            box=box.ROUNDED,
-            show_lines=False,
-            padding=(0, 1),
-        )
-
-        t.add_column("Dataset", style="bold")
-
-        for i, m in enumerate(methods):
-            style = "dim" if i % 2 else ""
-            t.add_column(m, justify="center", style=style)
-            if eq_col:
-                t.add_column("Eq", style=style)
-            if has_r2:
-                t.add_column("R²", justify="right", style=style)
-            if has_time:
-                t.add_column("Time", justify="right", style=style)
-
-        for ds in datasets:
-            cells: list[Any] = [ds]
-            for m in methods:
-                try:
-                    # r is row
-                    r: pd.Series = indexed.loc[(ds, m)] # type: ignore[assignment]
-                    if isinstance(r, pd.DataFrame):
-                        r = r.iloc[0]
-                    if has_r2:
-                        cells.append(_evaluation(r["status"], _fmt(r["r2"])))
-                    if eq_col:
-                        cells.append(_truncate(str(r.get(eq_col, "")), 40))
-                    if has_r2:
-                        cells.append(_fmt(r["r2"]))
-                    if has_time:
-                        cells.append(_fmt_time(r["time_s"]))
-                except KeyError:
-                    cells.append(Text("—", style="dim"))
-                    if eq_col:
-                        cells.append("—")
-                    if has_r2:
-                        cells.append("—")
-                    if has_time:
-                        cells.append("—")
-            t.add_row(*cells)
-
-        wide.print(t)
-        wide.print()
-
-    # Summary table (per method, across all data)
-
-    st = Table(
-        title="  Summary",
+    # Pretty-print to terminal.
+    show_noise_type = (
+        "noise_type" in cell.columns and cell["noise_type"].nunique() > 1
+    )
+    t = Table(
+        title="  Stats  [dim](aggregated over all seeds and datasets; "
+              "R²/MSE/MAE/time over successful runs only)[/dim]",
         title_style="bold cyan",
         box=box.ROUNDED,
         show_lines=False,
         padding=(0, 1),
     )
+    t.add_column("Variant", style="bold")
+    if "noise" in cell.columns:
+        t.add_column("Noise", justify="right")
+    if show_noise_type:
+        t.add_column("Noise type")
+    t.add_column("Runs", justify="right")
+    t.add_column("Found", justify="right")
+    t.add_column("Found %", justify="right")
+    t.add_column("Mean R²", justify="right")
+    t.add_column("Std R²", justify="right")
+    t.add_column("Mean time", justify="right")
 
-    st.add_column("Method", style="bold")
-    st.add_column("Runs", justify="right")
-    st.add_column("Found", justify="right")
-    st.add_column("Perfect", justify="right")
-    st.add_column("Good", justify="right")
-    st.add_column("Poor", justify="right")
-    st.add_column("Bad", justify="right")
-    st.add_column("Failed", justify="right")
-    st.add_column("Fail Rate", justify="right")
-    if has_r2:
-        st.add_column("Mean R²", justify="right")
-        st.add_column("Min R²", justify="right")
-    if has_time:
-        st.add_column("Mean time", justify="right")
-        st.add_column("Total time", justify="right")
+    for _, r in cell.iterrows():
+        sr_val = float(r["success_rate"])
+        sr_style = "green" if sr_val >= 0.8 else "yellow" if sr_val >= 0.5 else "red"
+        row: list[Any] = [str(r["variant"])]
+        if "noise" in cell.columns:
+            row.append(_fmt(r["noise"], ".3g"))
+        if show_noise_type:
+            row.append(str(r["noise_type"]))
+        row.extend([
+            str(int(r["n_runs"])),
+            Text(str(int(r["n_found"])),
+                 style=sr_style if sr_val < 1.0 else ""),
+            Text(f"{sr_val * 100:.1f}%", style=sr_style),
+            _fmt(r.get("r2_mean")),
+            _fmt(r.get("r2_std")),
+            _fmt_time(r.get("time_s_mean")),
+        ])
+        t.add_row(*row)
+    console.print(t)
+    console.print()
 
-    for m in methods:
-        mg = df[df["method"] == m]
-        total = len(mg)
-        total_found = int((mg["status"] == "Found").sum())
-        failures = len(mg) - total_found
-        ok = mg[mg["status"] == "Found"]
-
-        r2_vals = pd.to_numeric(ok["r2"], errors="coerce").dropna() if has_r2 and not ok.empty else pd.Series(dtype=float)
-        time_vals = pd.to_numeric(mg["time_s"], errors="coerce").dropna() if has_time else pd.Series(dtype=float)
-
-        row: list[str | Text] = [
-            m,
-            str(total),
-            Text(str(total_found)),
-            Text(str((r2_vals > 0.999).sum()), style="blue" if (r2_vals > 0.999).sum() else "dim"),
-            Text(str(((0.999 >= r2_vals) & (r2_vals > 0.900)).sum()), style="green" if ((0.999 >= r2_vals) & (r2_vals > 0.900)).sum() else "dim"),
-            Text(str(((0.900 >= r2_vals) & (r2_vals > 0.500)).sum()), style="yellow" if ((0.900 >= r2_vals) & (r2_vals > 0.500)).sum() else "dim"),
-            Text(str((r2_vals <= 0.500).sum()), style="red" if (r2_vals <= 0.500).sum() else "dim"),
-            Text(str(failures), style="red" if failures else "dim"),
-            f"{failures / total * 100:.1f}%" if total else "—",
-        ]
-        if has_r2:
-            row.append(_fmt(r2_vals.mean()) if not r2_vals.empty else "—")
-            row.append(_fmt(r2_vals.min()) if not r2_vals.empty else "—")
-        if has_time:
-            row.append(f"{time_vals.mean():.3f}s" if not time_vals.empty else "—")
-            row.append(f"{time_vals.sum():.2f}s" if not time_vals.empty else "—")
-
-        st.add_row(*row)
-
-    wide.print(st)
-    wide.print()
+    # Save full version to CSV.
+    if save_path is not None:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        cell.to_csv(save_path, index=False)
+        console.print(
+            f"[dim]Saved {len(cell)} rows × {len(cell.columns)} cols to[/dim] "
+            f"[bold]{save_path}[/bold]"
+        )
+    else:
+        console.print(
+            f"[dim]{len(cell)} rows — pass --save-path to write CSV[/dim]"
+        )
+    console.print()
 
 
 # Entry point
 
-def view_results(csv_path: str, mode: str = "concise") -> None:
+def view_results(
+    csv_path: str,
+    mode: str = "default",
+    save_path: str | None = None,
+) -> None:
     p = Path(csv_path)
     if not p.exists():
         console.print(f"[red]File not found:[/red] {csv_path}")
@@ -388,20 +291,27 @@ def view_results(csv_path: str, mode: str = "concise") -> None:
 
     df = pd.read_csv(p)
 
-    if "method" not in df.columns or "status" not in df.columns:
-        console.print("[red]CSV must contain at least 'method' and 'status' columns.[/red]")
+    required = {"variant", "method", "status"}
+    missing = required - set(df.columns)
+    if missing:
+        console.print(
+            f"[red]CSV missing required columns:[/red] {', '.join(sorted(missing))}"
+        )
         return
 
     console.print()
-    console.rule(f"[bold]{p.name}", style="bright_black")
+    console.rule(f"[bold]{p.name}[/bold]  [dim]({len(df)} rows)[/dim]",
+                 style="bright_black")
     console.print()
 
-    if mode == "concise":
-        _view_concise(df)
-    elif mode == "full":
-        _view_full(df)
-    elif mode == "compare":
-        _view_compare(df)
+    if mode == "default":
+        _view_default(df)
+    elif mode == "stats":
+        if save_path is None:
+            save = p.with_name(f"{p.stem}_stats.csv")
+        else:
+            save = Path(save_path)
+        _view_stats(df, save)
     else:
         console.print(f"[red]Unknown mode:[/red] {mode}")
 
@@ -411,20 +321,29 @@ def main(argv=None):
         description="View symbolic-discovery experiment results.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
+modes:
+    default   one table per (variant, noise, noise_type, n_samples, seed)
+    stats     aggregate across seeds; saves <input>_stats.csv
+
 examples:
     symbolic-discovery view results.csv
-    symbolic-discovery view results.csv --mode full
-    symbolic-discovery view results.csv --mode compare""",
+    symbolic-discovery view results.csv --mode stats
+    symbolic-discovery view results.csv --mode stats --save-path my_stats.csv""",
     )
     parser.add_argument("csv_file", help="Path to results CSV")
     parser.add_argument(
         "--mode", "-m",
-        choices=["concise", "full", "compare"],
-        default="concise",
-        help="Display mode (default: concise)",
+        choices=["default", "stats"],
+        default="default",
+        help="Display mode (default: default)",
+    )
+    parser.add_argument(
+        "--save-path", default=None,
+        help="In stats mode, where to write per-cell stats CSV "
+             "(default: <input>_stats.csv next to the input file).",
     )
     args = parser.parse_args(argv)
-    view_results(args.csv_file, args.mode)
+    view_results(args.csv_file, args.mode, args.save_path)
 
 
 if __name__ == "__main__":
