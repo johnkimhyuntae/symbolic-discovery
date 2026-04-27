@@ -12,19 +12,16 @@ class BACON3FSolver(BaseSolver):
     Wrapper that adapts the BACON.3F core algorithm to the BaseSolver interface.
     """
     def __init__(self, **kwargs: Any):
-        self.max_depth = kwargs.get("max_depth", 6)
-        self.constancy_threshold = kwargs.get("initial_delta", 0.1)
-        self.r2_threshold = kwargs.get("r2_threshold", 0.9)
-        self.verbose = kwargs.get("verbose", False)
+        self._kwargs = kwargs
 
 
-    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
+    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
+              target_col: str, seed: int) -> SolverResult:
         """
         Run BACON.3F and return the best discovered law as a SolverResult.
         """
         start_time = time.time()
-        model = BACON3F(max_depth=self.max_depth, constancy_threshold=self.constancy_threshold, 
-                        r2_threshold=self.r2_threshold, verbose=self.verbose)
+        model = BACON3F(**self._kwargs)
         
         if target_col not in train_df.columns:
             return SolverResult(

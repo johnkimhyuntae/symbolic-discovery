@@ -12,15 +12,7 @@ class BACON7FSolver(BaseSolver):
     Wrapper that adapts the BACON.7F core algorithm to the BaseSolver interface.
     """
     def __init__(self, **kwargs: Any):
-        # TODO: tune params
-        self.max_depth: int = kwargs.get("max_depth", 6)
-        self.initial_epsilon: float = kwargs.get("initial_epsilon", 0.01)
-        self.initial_delta: float = kwargs.get("initial_delta", 0.1)    
-        self.c_val: float = kwargs.get("c_val", 0.05)
-        self.scale_factor: float = kwargs.get("scale_factor", 1.2)
-        self.n_folds: int = kwargs.get("n_folds", 5)
-        self.r2_threshold: float = kwargs.get("r2_threshold", 0.9)
-        self.verbose: bool = kwargs.get("verbose", False)
+        self._kwargs = kwargs
 
 
     def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
@@ -29,10 +21,7 @@ class BACON7FSolver(BaseSolver):
         Run BACON.7F and return the best discovered law as a SolverResult.
         """
         start_time = time.time()
-        model = BACON7F(max_depth=self.max_depth, initial_epsilon=self.initial_epsilon, 
-                        initial_delta=self.initial_delta, c_val=self.c_val, 
-                        scale_factor=self.scale_factor, n_folds=self.n_folds, 
-                        r2_threshold=self.r2_threshold, verbose=self.verbose)
+        model = BACON7F(**self._kwargs)
 
         if target_col not in train_df.columns:
             return SolverResult(
