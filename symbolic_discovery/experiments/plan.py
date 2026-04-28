@@ -2,7 +2,7 @@
 Experiment plan resolution.
 
 Defines the Variant and Run dataclasses, and the parsers that turn CLI
-flags (--variant, --sweep) and YAML suite files (--suite) into a flat 
+flags (--variant, --sweep) and YAML study files (--study) into a flat 
 list of concrete Run objects for the runner to execute.
 
 A Variant is a named (model, kwargs) pair. A Run is one cell in the
@@ -110,26 +110,26 @@ def parse_sweep_spec(spec: str) -> list[Variant]:
     return variants
 
 
-# Suite file loading
+# Study file loading
 
-def load_suite_file(path: str) -> dict:
-    """Load a YAML suite file describing a full experiment grid."""
+def load_study_file(path: str) -> dict:
+    """Load a YAML study file describing a full experiment grid."""
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
-        raise ValueError(f"Suite file {path!r} must be a YAML mapping at the top level")
+        raise ValueError(f"Study file {path!r} must be a YAML mapping at the top level")
     return data
 
 
-def variants_from_suite(suite: dict) -> list[Variant]:
+def variants_from_study(study: dict) -> list[Variant]:
     """
-    Extract a list of Variants from a parsed suite dict.
+    Extract a list of Variants from a parsed study dict.
 
     Each entry under the 'variants' key must be a mapping with at least
     'name' and 'model' fields, and an optional 'params' mapping.
     """
     out = []
-    for entry in suite.get("variants", []):
+    for entry in study.get("variants", []):
         v = Variant(
             name=entry["name"],
             model=entry["model"],

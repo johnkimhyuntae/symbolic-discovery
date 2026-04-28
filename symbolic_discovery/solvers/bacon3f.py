@@ -27,9 +27,9 @@ class BACON3FSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"Target column '{target_col}' not found in training dataframe",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
+                r2=float("nan"),
+                mse=float("nan"),
+                mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )
@@ -42,9 +42,9 @@ class BACON3FSolver(BaseSolver):
                 return SolverResult(
                     equation="No law found",
                     raw_equation="No law found",
-                    r2=0.0,
-                    mse=float("inf"),
-                    mae=float("inf"),
+                    r2=float("nan"),
+                    mse=float("nan"),
+                    mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
                 )
@@ -52,20 +52,15 @@ class BACON3FSolver(BaseSolver):
             eq_clean = eq  # TODO: For now, just return the raw equation
 
             # Evaluate on test set if possible
-            r2, mse, mae = 0.0, float("inf"), float("inf")
-            try:
-                r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
-            except Exception:
-                # TODO?
-                pass
+            r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
 
             if r2 < 0.0:
                 return SolverResult(
                     equation=eq_clean,
-                    raw_equation=eq,
-                    r2=r2,
-                    mse=mse,
-                    mae=mae,
+                    raw_equation=f"Equation found with negative R²: {r2}",
+                    r2=float("nan"),
+                    mse=float("nan"),
+                    mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
                 )
@@ -85,9 +80,9 @@ class BACON3FSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"Error: {e}",
-                r2=0.0,
-                mse=float("inf"),
-                mae=float("inf"),
+                r2=float("nan"),
+                mse=float("nan"),
+                mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
             )

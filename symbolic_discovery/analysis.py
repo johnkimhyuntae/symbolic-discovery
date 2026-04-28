@@ -93,7 +93,6 @@ def aggregate_seeds(
     design — call :func:`successful` first if you want quality
     conditional on success.
     """
-    df = df.replace({"mse": {np.inf: np.nan}, "mae": {np.inf: np.nan}})
     keys = [k for k in group_by if k in df.columns]
     metrics = [m for m in metrics if m in df.columns]
 
@@ -144,7 +143,6 @@ def pivot_compare(
     metric: str = "r2",
     rows: str = "dataset",
     cols: str = "variant",
-    aggfunc: str = "mean",
 ) -> pd.DataFrame:
     """
     Pivot for side-by-side comparison: e.g. datasets on rows, variants
@@ -152,7 +150,7 @@ def pivot_compare(
     for dissertation tables, or into ``sns.heatmap`` for hyperparameter
     grids.
     """
-    return df.pivot_table(values=metric, index=rows, columns=cols, aggfunc=aggfunc)
+    return df.pivot_table(values=metric, index=rows, columns=cols)
 
 
 def noise_curve(

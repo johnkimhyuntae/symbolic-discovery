@@ -88,8 +88,9 @@ class PySRSolver(BaseSolver):
     """Wrapper for PySR, standardised to the BaseSolver interface."""
 
     def __init__(self, **kwargs: Any):
-        # TODO: expose params
         self.verbose = kwargs.get("verbose", False)
+        self.kwargs = kwargs
+        self.kwargs.pop("verbose", None)
 
     def solve(
         self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
@@ -102,7 +103,9 @@ class PySRSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"PySR import failed: {e}",
-                r2=0.0, mse=float("inf"), mae=float("inf"),
+                r2=float("nan"), 
+                mse=float("nan"), 
+                mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
             )
@@ -111,7 +114,7 @@ class PySRSolver(BaseSolver):
         y = train_df[target_col].to_numpy(copy=True)
         X, rename_map = _sanitise_columns(X)
 
-        params: dict[str, Any] = {
+        set_params: dict[str, Any] = {
             # "niterations": 40,
             "binary_operators": ["+", "-", "*", "/"], # standardise operator set with BACON
             "verbosity": 1 if self.verbose else 0,
@@ -123,7 +126,11 @@ class PySRSolver(BaseSolver):
             "maxdepth": 6, # same as default max_depth for BACON.3F and BACON.7F
         }
 
-        model = PySRRegressor(**params)
+        for key in set_params:
+            if key not in self.kwargs:
+                self.kwargs[key] = set_params[key]
+
+        model = PySRRegressor(**self.kwargs)
 
         try:
             model.fit(X, y)
@@ -131,13 +138,15 @@ class PySRSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=f"PySR fit failed: {e}",
-                r2=0.0, mse=float("inf"), mae=float("inf"),
+                r2=float("nan"), 
+                mse=float("nan"), 
+                mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
             )
 
-        # Metrics TODO?
-        r2, mse, mae = 0.0, float("inf"), float("inf")
+        # Metrics calculation
+        r2, mse, mae = float("nan"), float("nan"), float("nan")
         try:
             y_test = test_df[target_col].to_numpy(copy=True)
             x_test = test_df.drop(columns=[target_col])
@@ -146,8 +155,17 @@ class PySRSolver(BaseSolver):
             r2 = calculate_r2(y_test, y_pred)
             mse = calculate_mse(y_test, y_pred)
             mae = calculate_mae(y_test, y_pred)
-        except Exception:
-            pass
+        except Exception as e:
+            raw_eq = f"PySR fitted but metrics calculation failed: {e}"
+            return SolverResult(
+                equation="Error",
+                raw_equation=raw_eq,
+                r2=float("nan"), 
+                mse=float("nan"), 
+                mae=float("nan"),
+                time_sec=time.time() - start,
+                status="Error",
+            )
 
         # Equation extraction
         try:
@@ -157,7 +175,9 @@ class PySRSolver(BaseSolver):
             return SolverResult(
                 equation="Error",
                 raw_equation=raw_eq,
-                r2=r2, mse=mse, mae=mae,
+                r2=float("nan"), 
+                mse=float("nan"), 
+                mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
             )
@@ -168,7 +188,9 @@ class PySRSolver(BaseSolver):
             return SolverResult(
                 equation="No law found",
                 raw_equation="No law found",
-                r2=r2, mse=mse, mae=mae,
+                r2=float("nan"), 
+                mse=float("nan"), 
+                mae=float("nan"),
                 time_sec=duration,
                 status="Failure",
             )

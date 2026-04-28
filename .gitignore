@@ -18,10 +18,10 @@ dist/
 .DS_Store
 .vscode/
 
-# Local datasets / experiment suites
+# Local datasets / experiment studies
 /feynman/
 /data/
-/suites/
+/studies/
 
 # Local results
 /results/
