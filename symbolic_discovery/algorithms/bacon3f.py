@@ -415,7 +415,7 @@ class BACON3F:
         # Post-loop: return best of whatever was found
         if not self.discovered_laws:
             self._log(f"Failed: No law found after {self.max_depth} layers")
-            return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
+            return ("No law found", {"R-squared": float("nan"), "MSE": float("nan"), "MAE": float("nan")})
 
         self.discovered_laws.sort(key=lambda x: (-x[1]["R-squared"], x[1]["MSE"]))
         self._log(f"Discovery complete: {self.discovered_laws[0][0]} with R²={self.discovered_laws[0][1]['R-squared']:.4f} with {len(self.variable_pool)} total expressions in pool.")
