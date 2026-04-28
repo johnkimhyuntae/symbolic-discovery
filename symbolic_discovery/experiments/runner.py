@@ -1,7 +1,7 @@
 """
 Experiment runner.
 
-Drives the benchmark loop: resolves variants and suite files 
+Drives the benchmark loop: resolves variants and study files 
 into a flat list of Runs, then for each Run loads data, instantiates 
 the solver wrapper with the variant's kwargs, executes solve(), and 
 appends the result to the output CSV.
@@ -24,14 +24,14 @@ from symbolic_discovery.data import (
 )
 from symbolic_discovery.solvers import SOLVER_REGISTRY, SolverResult
 
-from .suite import (
+from .plan import (
     Run,
     Variant,
     expand_to_runs,
-    load_suite_file,
+    load_study_file,
     parse_sweep_spec,
     parse_variant_spec,
-    variants_from_suite,
+    variants_from_study,
 )
 
 
@@ -39,12 +39,12 @@ from .suite import (
 
 def _build_runs(args) -> List[Run]:
     """
-    Resolve CLI flags + suite file into a flat list of Runs.
+    Resolve CLI flags + study file into a flat list of Runs.
 
-    CLI flags take precedence over suite-file values for every axis.
+    CLI flags take precedence over study-file values for every axis.
     --models is treated as sugar for '--variant X=X' (default kwargs).
     """
-    suite = load_suite_file(args.suite) if args.suite else {}
+    study = load_study_file(args.study) if args.study else {}
 
     variants: List[Variant] = []
     for m in (args.models or []):
@@ -54,22 +54,22 @@ def _build_runs(args) -> List[Run]:
     for spec in (args.sweep or []):
         variants.extend(parse_sweep_spec(spec))
     if not variants:
-        variants.extend(variants_from_suite(suite))
+        variants.extend(variants_from_study(study))
 
-    datasets    = args.datasets    or suite.get("datasets", [])
-    noise       = args.noise       or suite.get("noise", [0.0])
-    noise_types = args.noise_types or suite.get("noise_types", ["multiplicative"])
-    n_samples   = args.n_samples   or suite.get("n_samples", [1000])
-    seeds       = args.seeds       or suite.get("seeds", [42])
+    datasets    = args.datasets    or study.get("datasets", [])
+    noise       = args.noise       or study.get("noise", [0.0])
+    noise_types = args.noise_types or study.get("noise_types", ["multiplicative"])
+    n_samples   = args.n_samples   or study.get("n_samples", [1000])
+    seeds       = args.seeds       or study.get("seeds", [42])
 
     if not variants:
         raise ValueError(
             "No variants resolved. Supply --models, --variant, --sweep, "
-            "or a --suite file with a 'variants' section."
+            "or a --study file with a 'variants' section."
         )
     if not datasets:
         raise ValueError(
-            "No datasets resolved. Supply --datasets or a --suite file "
+            "No datasets resolved. Supply --datasets or a --study file "
             "with a 'datasets' section."
         )
 
@@ -130,7 +130,9 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
         f"_n{run.n_samples}_S{run.seed}"
     )
     is_bacon = v.model.startswith("bacon")
-    exclusion = get_exclusion_reason(config) if is_bacon else None
+    # exclusion = get_exclusion_reason(config) if is_bacon else None
+    # TESTING: SKIPPING EXCLUSION FOR TESTING
+    exclusion = None
 
     # Excluded equations short-circuit before data loading for BACONs
     if exclusion:
@@ -233,8 +235,8 @@ examples:
         --variant no_relax=bacon7f:scale_factor=1.0 \\
         --variant baseline=bacon3f
 
-    # Full preregistered suite from a suite file
-    %(prog)s --suite experiments/noise_robustness.yaml --output noise.csv
+    # Full preregistered study from a study file
+    %(prog)s --study experiments/noise_robustness.yaml --output noise.csv
 
     # Sample-efficiency curve
     %(prog)s --models bacon7f pysr --datasets T1 T2 \\
@@ -258,15 +260,15 @@ examples:
              "Repeatable. Example: --sweep bacon7f.n_folds=1,3,5,7",
     )
     parser.add_argument(
-        "--suite", type=str, default=None, metavar="PATH",
-        help="YAML suite file specifying variants, datasets, noise, "
-            "noise_types, n_samples, and seeds. CLI flags override suite fields.",
+        "--study", type=str, default=None, metavar="PATH",
+        help="YAML study file specifying variants, datasets, noise, "
+            "noise_types, n_samples, and seeds. CLI flags override study fields.",
     )
 
     # Data axes
     parser.add_argument(
         "--datasets", nargs="+", default=None,
-        help="Dataset selectors (see below). Required unless given by --suite.",
+        help="Dataset selectors (see below). Required unless given by --study.",
     )
     parser.add_argument(
         "--target", type=str, default=None,
@@ -312,12 +314,12 @@ examples:
 
 def _validate_args(parser: argparse.ArgumentParser, args) -> None:
     """Cross-flag validation for runner arguments."""
-    if not (args.models or args.variant or args.sweep or args.suite):
+    if not (args.models or args.variant or args.sweep or args.study):
         parser.error(
-            "must supply at least one of --models, --variant, --sweep, --suite"
+            "must supply at least one of --models, --variant, --sweep, --study"
         )
-    if not args.datasets and not args.suite:
-        parser.error("--datasets is required unless --suite provides them")
+    if not args.datasets and not args.study:
+        parser.error("--datasets is required unless --study provides them")
 
 
 def main(argv: Optional[List[str]] = None) -> None:
