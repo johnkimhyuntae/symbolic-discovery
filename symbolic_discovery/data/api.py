@@ -65,7 +65,8 @@ def expand_datasets(
     raw: list[str],
     feynman_root: str = "feynman",
 ) -> list[str]:
-    """Expand bare-family wildcards; pass numbered keys through.
+    """
+    Expand bare-family wildcards; pass numbered keys through.
 
     ``["S", "F8", "T"]``  to  ``["S1", "S2", "S3", "S4", "F8", "T1", ..., "T5"]``
     """
@@ -175,7 +176,7 @@ def load(
 
     # C — custom CSV
     if config.family == "C":
-        df = _custom.load_csv(config.eq_id, n_samples=n_samples)
+        df = _custom.load_csv(config.eq_id, n_samples=n_samples, seed=seed)
         if noise > 0:
             df = inject_noise(df, config.target, noise, noise_type, seed)
         return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
