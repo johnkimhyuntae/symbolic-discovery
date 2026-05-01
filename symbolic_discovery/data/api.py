@@ -219,7 +219,7 @@ def get_exclusion_reason(config: DatasetConfig) -> str | None:
     """
     if config.family not in ("F", "B"):
         return None
-    return _feyn.get_exclusion_reason(config.eq_id)
+    return _feyn.get_exclusion_reason(config.key)
 
 
 # Pretty-printing

@@ -169,14 +169,14 @@ def load_data(
 
 @lru_cache(maxsize=1)
 def load_exclusions() -> dict[str, list[str]]:
-    """Load ``feynman_exclusions.json`` (reason: list of eq_ids)."""
+    """Load ``feynman_exclusions.json`` (reason: list of keys)."""
     with open(_EXCLUSIONS_PATH) as f:
         return json.load(f)
 
 
-def get_exclusion_reason(eq_id: str) -> str | None:
-    """Return the exclusion reason for *eq_id*, or ``None``."""
-    for reason, ids in load_exclusions().items():
-        if eq_id in ids:
+def get_exclusion_reason(key: str) -> str | None:
+    """Return the exclusion reason for *key*, or ``None``."""
+    for reason, keys in load_exclusions().items():
+        if key in keys:
             return reason
     return None
