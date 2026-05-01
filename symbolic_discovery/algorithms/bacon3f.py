@@ -49,6 +49,7 @@ class BACON3F:
     def __init__(self, 
                  max_depth: int = 6,
                  constancy_threshold: float = 0.1,
+                 r_threshold: float = 0.5,
                  r2_threshold: float = 0.9,
                  verbose: bool = False):
         """
@@ -65,6 +66,8 @@ class BACON3F:
                 mean ± threshold?), slope constancy (is IQR/median of
                 finite-difference slopes below threshold?), and intercept
                 negligibility (is |intercept/mean| below threshold?).
+            r_threshold: Minimum absolute Pearson correlation coefficient
+                for a pair to be considered correlated.
             r2_threshold: Minimum predictive R² for early stopping. When
                 a discovered law meets or exceeds this threshold, the
                 search halts immediately.
@@ -72,6 +75,7 @@ class BACON3F:
         """
         self.constancy_threshold = constancy_threshold
         self.max_depth = max_depth
+        self.r_threshold = r_threshold
         self.r2_threshold = r2_threshold
         self.verbose = verbose
         
@@ -121,8 +125,8 @@ class BACON3F:
            (producing a residual y - mx).
 
         3. **Uncorrelatedness**: if the Pearson correlation coefficient 
-           |r| < 0.5, the variables are considered uncorrelated, and no
-           meaningful relationship is proposed.
+           |r| < self.r_threshold, the variables are considered uncorrelated, 
+           and no meaningful relationship is proposed.
 
         4. **Monotonic trend**: if non-linear and correlated, the Pearson 
            correlation sign determines whether to propose a ratio 
@@ -153,7 +157,6 @@ class BACON3F:
             if np.mean(np.abs(Y) < 1e-4) > 0.95:
                 return (dependent, "Constant")
         else:
-            # BACON.3F's fixed threshold makes it hard to find noisy constant relationships.
             lo, hi = sorted([M_Y * (1 - self.constancy_threshold), M_Y * (1 + self.constancy_threshold)])
             if np.mean((Y > lo) & (Y < hi)) > 0.95:
                 return (dependent, "Constant")
@@ -191,7 +194,7 @@ class BACON3F:
         r = calculate_r(X, Y)
 
         # Uncorrelatedness check
-        if np.abs(r) < 0.5:
+        if np.abs(r) < self.r_threshold:
             return (None, "Null")
 
         # Monotonic trend check
