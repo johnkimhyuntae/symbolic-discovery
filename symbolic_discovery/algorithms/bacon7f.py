@@ -39,8 +39,8 @@ class BACON7F:
     misclassifications: if 2 of 3 folds say "Ratio" and 1 says 
     "Linear" due to noise, "Ratio" wins.
 
-    2. Symmetry-apply/Averaging: the winning structural form is 
-    re-applied to the full (unpartitioned) data via _average, so no 
+    2. Symmetry-apply: the winning structural form is 
+    re-applied to the full (unpartitioned) data via _apply, so no 
     rows are lost. For linear relations the slope is recomputed on 
     full data rather than inheriting a fold-local estimate.
 
@@ -53,6 +53,7 @@ class BACON7F:
                  initial_epsilon: float = 0.01,
                  initial_delta: float = 0.1,    
                  c_val: float = 0.05,
+                 r_threshold: float = 0.5,
                  scale_factor: float = 1.2,
                  n_folds: int = 5,
                  r2_threshold: float = 0.9,
@@ -75,6 +76,8 @@ class BACON7F:
                 |intercept / mean(Y)| < c_val, the intercept is treated
                 as zero and a ratio y/x is preferred over a linear
                 residual y - mx.
+            r_threshold: Minimum absolute Pearson correlation coefficient
+                for a pair to be considered correlated.
             scale_factor: Multiplicative relaxation applied to epsilon
                 and delta at the start of each layer.
             n_folds: Number of random folds to partition each
@@ -91,6 +94,7 @@ class BACON7F:
         self.epsilon = initial_epsilon
         self.delta = initial_delta
         self.c_val = c_val
+        self.r_threshold = r_threshold
         self.scale_factor = scale_factor
         self.n_folds = n_folds
         self.r2_threshold = r2_threshold
@@ -128,7 +132,7 @@ class BACON7F:
         """
         Classifies the relationship between a dependent and independent
         term. Returns only a relation type string. The Term construction 
-        is deferred to _average, which runs once on full data.
+        is deferred to _apply, which runs once on full data.
 
         Applies four checks in this order:
 
@@ -141,8 +145,8 @@ class BACON7F:
             IQR-based slope check.
 
         3. **Uncorrelatedness**: if the Pearson correlation coefficient 
-           |r| < 0.5, the variables are considered uncorrelated, and no
-           meaningful relationship is proposed.
+           |r| < self.r_threshold, the variables are considered uncorrelated, 
+           and no meaningful relationship is proposed.
 
         4. **Monotonic trend**: if non-linear and correlated, the Pearson 
            correlation sign determines whether to propose a ratio 
@@ -175,7 +179,7 @@ class BACON7F:
             return "Linear"
 
         # Uncorrelatedness check
-        if abs(r) < 0.5:
+        if abs(r) < self.r_threshold:
             return "Null"
 
         # Monotonic trend checks
@@ -215,13 +219,12 @@ class BACON7F:
         if len(tied) == 1:
             winning_rel = tied[0]
         else:
-            # Tiebreak: most specific relation wins
             winning_rel = min(tied, key=lambda r: RELATION_PRIORITY.get(r, 99))
         
         return winning_rel
 
 
-    def _average(self, winning_rel: str, dependent: Term, independent: Term) -> Term | None:
+    def _apply(self, winning_rel: str, dependent: Term, independent: Term) -> Term | None:
         """
         Constructs the composite Term on full data.
 
@@ -381,7 +384,7 @@ class BACON7F:
         Iterates up to max_depth layers. At each layer, every novel
         directed pair of pool variables is randomly partitioned into
         n_folds folds. The heuristic layer classifies each fold and a
-        majority vote determines the winning relation type. _average
+        majority vote determines the winning relation type. _apply
         applies that operation to the full data to construct the
         composite Term.
 
@@ -495,21 +498,21 @@ class BACON7F:
                     
                 
                 # Step 4: Apply winning structure to full data 
-                averaged_term = self._average(winning_rel, dependent, independent)
+                full_term = self._apply(winning_rel, dependent, independent)
 
-                if averaged_term is None:
+                if full_term is None:
                     continue
 
                 # Handle discovered laws
                 if winning_rel == "Constant":
-                    self.known_expressions.add(str(averaged_term.symbol))
-                    if self._contains_target(averaged_term.symbol) and str(averaged_term.symbol) not in self.discovered_strs:
-                        self.discovered_strs.add(str(averaged_term.symbol))
+                    self.known_expressions.add(str(full_term.symbol))
+                    if self._contains_target(full_term.symbol) and str(full_term.symbol) not in self.discovered_strs:
+                        self.discovered_strs.add(str(full_term.symbol))
 
                         # Rearrange to target = f(other vars) and evaluate
-                        rearranged = self._rearrange(averaged_term)
+                        rearranged = self._rearrange(full_term)
                         if rearranged is None:
-                            eq_str = f"{averaged_term.symbol} = {np.mean(averaged_term.values):.4g}"
+                            eq_str = f"{full_term.symbol} = {np.mean(full_term.values):.4g}"
                         else:
                             eq_str = f"{self.target_var} = {rearranged}"
 
@@ -525,8 +528,8 @@ class BACON7F:
                     continue
 
                 # Non-constant: promote composite into pool for next layer
-                self.known_expressions.add(str(averaged_term.symbol))
-                candidates_this_layer.append(averaged_term)
+                self.known_expressions.add(str(full_term.symbol))
+                candidates_this_layer.append(full_term)
 
             if not candidates_this_layer:
                 self._log("Stop: no new composites generated")

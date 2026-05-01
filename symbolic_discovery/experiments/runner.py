@@ -130,26 +130,37 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
         f"_n{run.n_samples}_S{run.seed}"
     )
     is_bacon = v.model.startswith("bacon")
-    # exclusion = get_exclusion_reason(config) if is_bacon else None
-    # TESTING: SKIPPING EXCLUSION FOR TESTING
-    exclusion = None
+    exclusion = get_exclusion_reason(config)
 
-    # Excluded equations short-circuit before data loading for BACONs
+    # Exclusions
     if exclusion:
+        # --exclude: skip transcendental
+        if args.exclude and exclusion == "transcendental":
+            print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
+            return
+
+        # --exclude-bacon: skip all unsolvable by BACON
+        if args.exclude_bacon:
+            print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
+            return
+
+    if is_bacon and exclusion and exclusion != "complex":
+        # TESTING : allow complex for bacon
         result = SolverResult(
             equation="No law found",
             raw_equation=(
-                "Excluded: equation contains operators BACON cannot discover"
+                f"Excluded: equation contains {exclusion} operator BACON cannot discover"
                 if exclusion != "complex"
                 else "Excluded: equation is too complex for BACON"
             ),
-            r2=0.0,
-            mse=float("inf"),
-            mae=float("inf"),
+            r2=float("nan"),
+            mse=float("nan"),
+            mae=float("nan"),
             time_sec=0.0,
             status="Failure",
         )
         bench_pretty_map = None
+
     else:
         train_df, test_df, bench_pretty_map = load(
             config,
@@ -164,11 +175,14 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
         solver = SolverClass(verbose=args.verbose, **v.params)
         result = solver.solve(train_df, test_df, config.target, run.seed)
 
-    _write_row(writer, run_id, run, config, v, result)
-    _print_progress(run_id, run, v, config, result, bench_pretty_map)
+    pretty_eq = pretty_equation(result.equation or "", bench_pretty_map)
+    eq_preview = (pretty_eq or "").replace("\n", " ").strip()
+
+    _write_row(writer, run_id, run, config, v, result, eq_preview)
+    _print_progress(run_id, run, config, v, result, eq_preview)
 
 
-def _write_row(writer, run_id, run, config, v, result) -> None:
+def _write_row(writer, run_id, run, config, v, result, eq_preview) -> None:
     writer.writerow({
         "run_id": run_id,
         "dataset": config.key,
@@ -179,7 +193,7 @@ def _write_row(writer, run_id, run, config, v, result) -> None:
         "noise_type": run.noise_type,
         "n_samples": run.n_samples,
         "seed": run.seed,
-        "equation": result.equation,
+        "equation": eq_preview if eq_preview else result.equation,
         "raw_equation": result.raw_equation,
         "r2": result.r2,
         "mse": result.mse,
@@ -189,19 +203,19 @@ def _write_row(writer, run_id, run, config, v, result) -> None:
     })
 
 
-def _print_progress(run_id, run, v, config, result, bench_pretty_map) -> None:
-    pretty_eq = pretty_equation(result.equation or "", bench_pretty_map)
-    eq_preview = (pretty_eq or "").replace("\n", " ").strip()
-    if len(eq_preview) > 160:
-        eq_preview = eq_preview[:157] + "..."
+def _print_progress(run_id, run, config, v, result, eq_preview) -> None:
+    printable_eq = eq_preview if eq_preview else result.equation
+
+    if len(printable_eq) > 160:
+        printable_eq = printable_eq[:157] + "..."
 
     print(
         f"[{v.name}] {config.key} "
         f"(N={run.noise}/{run.noise_type}, n={run.n_samples}, S={run.seed}) -> "
         f"{result.status} (R²={result.r2:.4f})"
     )
-    if eq_preview and eq_preview not in ("No law found", "Error"):
-        print(f"    Eq: {eq_preview}")
+    if printable_eq and printable_eq not in ("No law found", "Error"):
+        print(f"    Eq: {printable_eq}")
     else:
         print(f"    Details: {result.raw_equation}")
 
@@ -280,7 +294,7 @@ examples:
     )
     parser.add_argument(
         "--noise-types", nargs="+", default=None,
-        choices=["gaussian", "multiplicative", "heavy_tail", "outliers"],
+        choices=["additive", "multiplicative"],
         help="Noise distributions to inject. Default: multiplicative",
     )
     parser.add_argument(
@@ -304,6 +318,14 @@ examples:
     parser.add_argument(
         "--verbose", action="store_true",
         help="Verbose solver output",
+    )
+    parser.add_argument(
+        "--exclude", action="store_true",
+        help="Skips datasets that have operators beyond [+, -, *, /].",
+    )
+    parser.add_argument(
+        "--exclude-bacon", action="store_true",
+        help="Skips datasets that are known to be unsolvable by BACON.",
     )
     parser.add_argument(
         "--feynman-root", type=str, default="feynman",

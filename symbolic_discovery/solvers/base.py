@@ -6,6 +6,7 @@ import pandas as pd
 
 @dataclass
 class SolverResult:
+    """TODO: docstring."""
     equation: str
     raw_equation: str
     r2: float
@@ -16,6 +17,7 @@ class SolverResult:
 
 
 class BaseSolver(ABC):
+    """TODO: docstring."""
     @abstractmethod
     def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, target_col: str, seed: int) -> SolverResult:
         raise NotImplementedError
