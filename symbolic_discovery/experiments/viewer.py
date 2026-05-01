@@ -212,57 +212,79 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
     cell = sr.merge(quality, on=group_by, how="left")
     cell["n_found"] = cell["n_found"].fillna(0).astype(int)
 
-    # Sort by variant, then noise, for stable output.
-    sort_cols = [c for c in ("variant", "noise") if c in cell.columns]
+    # One table per (noise, noise_type, n_samples); variants as rows.
+    partition_cols = [c for c in ("noise", "noise_type", "n_samples")
+                      if c in cell.columns]
+    sort_cols = partition_cols + (["variant"] if "variant" in cell.columns else [])
     if sort_cols:
         cell = cell.sort_values(sort_cols).reset_index(drop=True)
 
-    # Pretty-print to terminal.
-    show_noise_type = (
-        "noise_type" in cell.columns and cell["noise_type"].nunique() > 1
+    # Section header (printed once).
+    console.print(
+        "[bold cyan]Stats[/bold cyan]  "
+        "[dim](aggregated over seeds and datasets; "
+        "R²/time over successful runs only)[/dim]"
     )
-    t = Table(
-        title="  Stats  [dim](aggregated over all seeds and datasets; "
-              "R²/MSE/MAE/time over successful runs only)[/dim]",
-        title_style="bold cyan",
-        box=box.ROUNDED,
-        show_lines=False,
-        padding=(0, 1),
-    )
-    t.add_column("Variant", style="bold")
-    if "noise" in cell.columns:
-        t.add_column("Noise", justify="right")
-    if show_noise_type:
-        t.add_column("Noise type")
-    t.add_column("Runs", justify="right")
-    t.add_column("Found", justify="right")
-    t.add_column("Found %", justify="right")
-    t.add_column("Mean R²", justify="right")
-    t.add_column("Std R²", justify="right")
-    t.add_column("Mean time", justify="right")
-
-    for _, r in cell.iterrows():
-        sr_val = float(r["success_rate"])
-        sr_style = "green" if sr_val >= 0.8 else "yellow" if sr_val >= 0.5 else "red"
-        row: list[Any] = [str(r["variant"])]
-        if "noise" in cell.columns:
-            row.append(_fmt(r["noise"], ".3g"))
-        if show_noise_type:
-            row.append(str(r["noise_type"]))
-        row.extend([
-            str(int(r["n_runs"])),
-            Text(str(int(r["n_found"])),
-                 style=sr_style if sr_val < 1.0 else ""),
-            Text(f"{sr_val * 100:.1f}%", style=sr_style),
-            _fmt(r.get("r2_mean")),
-            _fmt(r.get("r2_std")),
-            _fmt_time(r.get("time_s_mean")),
-        ])
-        t.add_row(*row)
-    console.print(t)
     console.print()
 
-    # Save full version to CSV.
+    if partition_cols:
+        groups = list(cell.groupby(partition_cols, sort=True, dropna=False))
+    else:
+        groups = [((), cell)]
+
+    for key, sub in groups:
+        keys = key if isinstance(key, tuple) else (key,)
+        kv = dict(zip(partition_cols, keys))
+
+        # Subtitle: noise=X  noise_type  n=N
+        parts: list[str] = []
+        if "noise" in kv:
+            parts.append(f"noise={_fmt(kv['noise'], '.3g')}")
+        if "noise_type" in kv and pd.notna(kv["noise_type"]):
+            parts.append(str(kv["noise_type"]))
+        if "n_samples" in kv and pd.notna(kv["n_samples"]):
+            try:
+                parts.append(f"n={int(kv['n_samples'])}")
+            except (ValueError, TypeError):
+                pass
+        subtitle = "  ".join(parts)
+
+        t = Table(
+            title=f"  {subtitle}" if subtitle else None,
+            title_style="bold cyan",
+            box=box.ROUNDED,
+            show_lines=False,
+            padding=(0, 1),
+        )
+        t.add_column("Variant", style="bold")
+        t.add_column("Runs", justify="right")
+        t.add_column("Found", justify="right")
+        t.add_column("Found %", justify="right")
+        t.add_column("Mean R²", justify="right")
+        t.add_column("Std R²", justify="right")
+        t.add_column("Mean time", justify="right")
+
+        for _, r in sub.iterrows():
+            sr_val = float(r["success_rate"])
+            sr_style = (
+                "green" if sr_val >= 0.8
+                else "yellow" if sr_val >= 0.5
+                else "red"
+            )
+            t.add_row(
+                str(r["variant"]),
+                str(int(r["n_runs"])),
+                Text(str(int(r["n_found"])),
+                     style=sr_style if sr_val < 1.0 else ""),
+                Text(f"{sr_val * 100:.1f}%", style=sr_style),
+                _fmt(r.get("r2_mean")),
+                _fmt(r.get("r2_std")),
+                _fmt_time(r.get("time_s_mean")),
+            )
+        console.print(t)
+        console.print()
+
+    # Save full (un-partitioned) version to CSV.
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cell.to_csv(save_path, index=False)
