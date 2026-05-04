@@ -32,7 +32,7 @@ def test_recovers_law_on_clean_data(dataset_id, expected_expr):
     config = CATALOGUE[dataset_id]
     train_df, test_df, _ = load(config, noise=0.0)
 
-    solver = BACON3F(r2_threshold=0.999, constancy_threshold=0.01, verbose=False)
+    solver = BACON3F(r2_threshold=0.999, constancy_threshold=0.01, log_level="quiet")
     equation, _ = solver.discover(train_df, target_col=config.target)
 
     assert equation != "No law found"
@@ -61,7 +61,7 @@ def test_expected_failures_clean(dataset_id):
     """Known BACON.3F limitations should fail cleanly."""
     config = CATALOGUE[dataset_id]
     train_df, test_df, _ = load(config, noise=0.0)
-    solver = BACON3F(r2_threshold=0.999, constancy_threshold=0.01, verbose=False)
+    solver = BACON3F(r2_threshold=0.999, constancy_threshold=0.01, log_level="quiet")
     equation, _ = solver.discover(train_df, target_col=config.target)
 
     is_failure = equation == "No law found"
@@ -80,10 +80,10 @@ class TestDeterminism:
         config = CATALOGUE["S2"]
         train_df, test_df, _ = load(config, noise=0.0)
 
-        eq_a, _ = BACON3F(verbose=False).discover(
-            train_df, target_col=config.target, seed=42)
-        eq_b, _ = BACON3F(verbose=False).discover(
-            train_df, target_col=config.target, seed=42)
+        eq_a, _ = BACON3F(log_level="quiet").discover(
+            train_df, target_col=config.target, seed=73)
+        eq_b, _ = BACON3F(log_level="quiet").discover(
+            train_df, target_col=config.target, seed=73)
 
         r2_a, mse_a, mae_a = equation_to_metrics(eq_a, test_df, config.target)
         r2_b, mse_b, mae_b = equation_to_metrics(eq_b, test_df, config.target)
@@ -104,7 +104,7 @@ class TestEdgeCases:
             "x": np.linspace(1, 10, 20),
             "y": np.full(20, 3.14),
         })
-        equation, _ = BACON3F(verbose=False).discover(df, target_col="y")
+        equation, _ = BACON3F(log_level="quiet").discover(df, target_col="y")
         _, mse, _ = equation_to_metrics(equation, df, "y")
         assert mse < 1e-10
 
@@ -112,7 +112,7 @@ class TestEdgeCases:
         """Identical columns should still be solved."""
         vals = np.linspace(1, 10, 20)
         df = pd.DataFrame({"x": vals, "y": vals.copy()})
-        equation, _ = BACON3F(verbose=False).discover(df, target_col="y")
+        equation, _ = BACON3F(log_level="quiet").discover(df, target_col="y")
         r2, _, _ = equation_to_metrics(equation, df, "y")
         assert equation != "No law found"
         assert r2 > 0.999
@@ -120,5 +120,5 @@ class TestEdgeCases:
     def test_single_column_returns_failure_not_crash(self):
         """A missing feature column should fail without crashing."""
         df = pd.DataFrame({"y": np.linspace(1, 10, 20)})
-        equation, _ = BACON3F(verbose=False).discover(df, target_col="y")
+        equation, _ = BACON3F(log_level="quiet").discover(df, target_col="y")
         assert equation == "No law found"

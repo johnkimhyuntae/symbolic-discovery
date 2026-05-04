@@ -98,9 +98,9 @@ class TestBuildArgParser:
         parser = build_arg_parser()
         args = parser.parse_args([
             "--models", KNOWN_MODEL, "--datasets", "S1",
-            "--noise-types", "gaussian", "multiplicative",
+            "--noise-types", "additive", "multiplicative",
         ])
-        assert args.noise_types == ["gaussian", "multiplicative"]
+        assert args.noise_types == ["additive", "multiplicative"]
 
     def test_n_samples_parses_multiple_ints(self):
         parser = build_arg_parser()
@@ -148,7 +148,7 @@ class TestBuildRuns:
         assert r.noise == 0.0
         assert r.noise_type == "multiplicative"
         assert r.n_samples == 1000
-        assert r.seed == 42
+        assert r.seed == 73
 
     def test_variant_spec(self, fake_solver, default_runner_args):
         args = default_runner_args(
@@ -251,7 +251,7 @@ class TestWriteRow:
         v = Variant(name="v1", model=KNOWN_MODEL, params={"a": 1, "b": 2.5})
         run = Run(
             variant=v, dataset="S1", noise=0.05,
-            noise_type="gaussian", n_samples=500, seed=42,
+            noise_type="gaussian", n_samples=500, seed=73,
         )
         config = SimpleNamespace(key="S1", target="y")
         result = SolverResult(
@@ -275,7 +275,7 @@ class TestWriteRow:
         assert row["noise"] == "0.05"
         assert row["noise_type"] == "gaussian"
         assert row["n_samples"] == "500"
-        assert row["seed"] == "42"
+        assert row["seed"] == "73"
         assert row["status"] == "Found"
 
     def test_params_json_is_valid_and_sorted(self, csv_fieldnames):
@@ -315,7 +315,7 @@ class TestPrintProgress:
         v = Variant(name="v1", model=KNOWN_MODEL)
         run = Run(
             variant=v, dataset="S1", noise=0.0,
-            noise_type="multiplicative", n_samples=100, seed=42,
+            noise_type="multiplicative", n_samples=100, seed=73,
         )
         config = SimpleNamespace(key="S1", target="y")
         result = SolverResult(

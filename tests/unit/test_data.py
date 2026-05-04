@@ -106,7 +106,7 @@ class TestResolve:
 class TestGenerate:
     def test_shape(self):
         cfg = CATALOGUE["S2"]
-        df = generate(cfg, n_samples=100, seed=42)
+        df = generate(cfg, n_samples=100, seed=73)
         assert len(df) == 100
         for var in cfg.variables:
             assert var in df.columns
@@ -114,8 +114,8 @@ class TestGenerate:
 
     def test_deterministic_for_same_seed(self):
         cfg = CATALOGUE["S2"]
-        df1 = generate(cfg, n_samples=50, seed=42)
-        df2 = generate(cfg, n_samples=50, seed=42)
+        df1 = generate(cfg, n_samples=50, seed=73)
+        df2 = generate(cfg, n_samples=50, seed=73)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_different_seeds_produce_different_data(self):
@@ -126,7 +126,7 @@ class TestGenerate:
 
     def test_target_satisfies_formula(self):
         cfg = CATALOGUE["S1"]
-        df = generate(cfg, n_samples=50, seed=42)
+        df = generate(cfg, n_samples=50, seed=73)
         np.testing.assert_allclose(df["y"], df["x1"] + df["x2"])
 
     def test_variable_values_within_domain(self):
@@ -142,39 +142,39 @@ class TestGenerate:
 class TestInjectNoise:
     def test_zero_noise_returns_unchanged(self):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [10.0, 20.0, 30.0]})
-        result = inject_noise(df, "y", 0.0, seed=42)
+        result = inject_noise(df, "y", 0.0, seed=73)
         pd.testing.assert_frame_equal(df, result)
 
     def test_negative_noise_returns_unchanged(self):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [10.0, 20.0, 30.0]})
-        result = inject_noise(df, "y", -0.1, seed=42)
+        result = inject_noise(df, "y", -0.1, seed=73)
         pd.testing.assert_frame_equal(df, result)
 
     def test_missing_target_returns_unchanged(self):
         df = pd.DataFrame({"x": [1, 2, 3]})
-        result = inject_noise(df, "y_not_here", 0.1, seed=42)
+        result = inject_noise(df, "y_not_here", 0.1, seed=73)
         pd.testing.assert_frame_equal(df, result)
 
     def test_nonzero_noise_changes_target(self):
         df = pd.DataFrame({"x": [1, 2, 3], "y": [10.0, 20.0, 30.0]})
-        result = inject_noise(df, "y", 0.1, seed=42)
+        result = inject_noise(df, "y", 0.1, seed=73)
         assert not df["y"].equals(result["y"])
 
     def test_only_target_column_changes(self):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [10.0, 20.0, 30.0]})
-        result = inject_noise(df, "y", 0.1, seed=42)
+        result = inject_noise(df, "y", 0.1, seed=73)
         pd.testing.assert_series_equal(result["x"], df["x"])
 
     def test_does_not_mutate_input(self):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [10.0, 20.0, 30.0]})
         original_y = df["y"].copy()
-        _ = inject_noise(df, "y", 0.5, seed=42)
+        _ = inject_noise(df, "y", 0.5, seed=73)
         pd.testing.assert_series_equal(df["y"], original_y)
 
     def test_deterministic_for_same_seed(self):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "y": [10.0, 20.0, 30.0]})
-        a = inject_noise(df, "y", 0.1, seed=42)
-        b = inject_noise(df, "y", 0.1, seed=42)
+        a = inject_noise(df, "y", 0.1, seed=73)
+        b = inject_noise(df, "y", 0.1, seed=73)
         pd.testing.assert_frame_equal(a, b)
 
     def test_multiplicative_scales_with_value(self):
@@ -182,15 +182,15 @@ class TestInjectNoise:
             "x": [1, 2, 3, 4, 5],
             "y": [1.0, 1.0, 100.0, 100.0, 100.0],
         })
-        result = inject_noise(df, "y", 0.1, noise_type="multiplicative", seed=42)
+        result = inject_noise(df, "y", 0.1, noise_type="multiplicative", seed=73)
         small_dev = float(np.mean(np.abs(result["y"][:2] - df["y"][:2])))
         large_dev = float(np.mean(np.abs(result["y"][2:] - df["y"][2:])))
         assert large_dev > small_dev * 5
 
     def test_additive_scales_with_range(self):
         df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [0.0, 10.0, 20.0, 30.0]})
-        a = inject_noise(df, "y", 0.1, noise_type="gaussian", seed=42)
-        b = inject_noise(df, "y", 0.5, noise_type="gaussian", seed=42)
+        a = inject_noise(df, "y", 0.1, noise_type="gaussian", seed=73)
+        b = inject_noise(df, "y", 0.5, noise_type="gaussian", seed=73)
         dev_a = float(np.mean(np.abs(a["y"] - df["y"])))
         dev_b = float(np.mean(np.abs(b["y"] - df["y"])))
         assert dev_b > dev_a * 2  # generous bound

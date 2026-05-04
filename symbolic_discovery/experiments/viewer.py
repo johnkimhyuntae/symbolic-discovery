@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Results viewer for symbolic-discovery experiment output.
 

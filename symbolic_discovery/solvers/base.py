@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import pandas as pd
 
 
@@ -14,6 +14,7 @@ class SolverResult:
     mae: float
     time_sec: float
     status: str
+    logs: list[str] = field(default_factory=list)
 
 
 class BaseSolver(ABC):

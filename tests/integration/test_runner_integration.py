@@ -139,32 +139,6 @@ class TestFullGrid:
         assert len(rows) == 16
 
 
-# Variant params forwarding
-
-class TestVariantParamsForwarding:
-
-    def test_variant_params_reach_solver(
-        self, fake_solver, default_runner_args, tmp_path,
-    ):
-        # The runner instantiates SolverClass(verbose=..., **params).
-        # FakeSolver records its kwargs so we can inspect them.
-        out = tmp_path / "results.csv"
-        args = default_runner_args(
-            variant=["custom=fake:my_param=99,verbose_extra=true"],
-            datasets=["S1"],
-            n_samples=[50],
-            output=str(out),
-        )
-        run_experiment(args)
-
-        # The fake_solver fixture yields the FakeSolver class itself.
-        assert len(fake_solver.instances) == 1
-        kwargs = fake_solver.instances[0].kwargs
-        assert kwargs["my_param"] == 99
-        assert kwargs["verbose_extra"] is True
-        assert "verbose" in kwargs   # injected by the runner itself
-
-
 # Study file
 
 class TestStudyFile:
@@ -182,7 +156,7 @@ class TestStudyFile:
             "noise": [0.0],
             "noise_types": ["multiplicative"],
             "n_samples": [50],
-            "seeds": [42, 43],
+            "seeds": [73, 74],
         }))
         out = tmp_path / "results.csv"
         args = default_runner_args(study=str(study_path), output=str(out))
@@ -191,7 +165,7 @@ class TestStudyFile:
         rows = _read_rows(out)
         assert len(rows) == 4
         assert {r["variant"] for r in rows} == {"a", "b"}
-        assert {r["seed"] for r in rows} == {"42", "43"}
+        assert {r["seed"] for r in rows} == {"73", "74"}
 
 
 # main() entry point

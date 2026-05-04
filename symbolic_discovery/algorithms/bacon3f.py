@@ -26,14 +26,12 @@ class Term:
 
 class BACON3F:
     """
-    BACON.3F: a flat tabular adaptation of Langley's BACON.3 (1979).
+    BACON.3F: a flat tabular adaptation of Langley's BACON.3.
 
     Discovers empirical laws by iterating directed pairwise heuristic
     checks over a pool of symbolic terms. New composites are promoted 
     each layer and laws are collected whenever a composite is found to 
     be constant and contains the target variable.
-
-    Quirks:
 
     - IQR-based linearity: slope constancy is assessed via the 
     interquartile range of finite differences.
@@ -49,35 +47,32 @@ class BACON3F:
     def __init__(self, 
                  max_depth: int = 6,
                  constancy_threshold: float = 0.1,
-                 r_threshold: float = 0.5,
+                 r_threshold: float = 0.45,
                  r2_threshold: float = 0.9,
-                 verbose: bool = False):
+                 log_level: str = "default"):
         """
         Initialise the BACON.3F solver.
-
-        TODO: For now, defaults assume noisy data.
 
         Args:
             max_depth: Maximum number of discovery layers before stopping.
                 Each layer tests all novel directed pairs and promotes
                 non-constant composites.
             constancy_threshold: Unified threshold for all constancy
-                checks: variable constancy (are all values within
-                mean ± threshold?), slope constancy (is IQR/median of
-                finite-difference slopes below threshold?), and intercept
-                negligibility (is |intercept/mean| below threshold?).
+                checks, used for variable constancy, slope constancy, 
+                and intercept negligibility.
             r_threshold: Minimum absolute Pearson correlation coefficient
                 for a pair to be considered correlated.
             r2_threshold: Minimum predictive R² for early stopping. When
                 a discovered law meets or exceeds this threshold, the
                 search halts immediately.
-            verbose: If True, print the decision log to stdout.
+            log_level: Controls the verbosity of the decision log. Options are
+                "default", "verbose", and "quiet".
         """
         self.constancy_threshold = constancy_threshold
         self.max_depth = max_depth
         self.r_threshold = r_threshold
         self.r2_threshold = r2_threshold
-        self.verbose = verbose
+        self.log_level = log_level
         
         # Internal states
         self.logs: list[str] = []
@@ -97,32 +92,35 @@ class BACON3F:
         self.sym_to_vals: dict[str, np.ndarray] = {}
 
 
-    def _log(self, message: str):
-        """Append to the decision log; print if verbose."""
-        # TODO: add another level of verbosity
+    def _log(self, message: str, level: str = "default"):
+        """Append to the decision log / print depending on log_level.
+
+            quiet:      nothing logged or printed.
+            default:    only level="default" calls are emitted.
+            verbose:    all calls (default + verbose) are emitted.
+        """
+        if self.log_level == "quiet":
+            return
+        if level == "verbose" and self.log_level != "verbose":
+            return
+
         self.logs.append(message)
-        if self.verbose:
-            if message:
-                print(f"[BACON.3F] {message}")
-            else:
-                print("")
+
+        if message:
+            print(f"[BACON.3F] {message}")
+        else:
+            print("")
 
     
     def _check(self, dependent: Term, independent: Term) -> Tuple[Term | None, str]:
         """
         Applies four checks in this order:
 
-        1. **Constancy**: is the dependent already constant? If all
-           values fall within mean x (1 ± threshold), the dependent
-           is declared constant. Near-zero means are handled separately
-           with an absolute-spread check.
+        1. **Constancy**: is the dependent already constant within 
+            constancy_threshold?
 
-        2. **Linearity**: are finite-difference slopes constant? Slopes
-           between consecutive sorted data points are computed; if
-           IQR(slopes) / |median(slopes)| < threshold, the relationship
-           is linear. A sub-check distinguishes negligible intercepts
-           (producing a ratio y/x) from significant intercepts
-           (producing a residual y - mx).
+        2. **Linearity**: do dependent and independent have a near 
+            perfect linear relationship (determined by slope constancy)?
 
         3. **Uncorrelatedness**: if the Pearson correlation coefficient 
            |r| < self.r_threshold, the variables are considered uncorrelated, 
@@ -145,23 +143,30 @@ class BACON3F:
 
         X = independent.values
         Y = dependent.values
-        
+
         # Guard against division by zero in ratio operations
         safe_X = np.where(np.abs(X) < 1e-9, 1e-9, X)
 
         # Constancy check
+        self._log(f"  Checking constancy...", level="verbose")
+
         M_Y = float(np.mean(Y))
         if np.abs(M_Y) < 1e-4:
             # Near-zero mean: strict inequality on zero-width bounds
             # would always fail, so check absolute spread instead
             if np.mean(np.abs(Y) < 1e-4) > 0.95:
+                self._log(f"    -> Constant (near-zero, frac|Y|<1e-4={float(np.mean(np.abs(Y)<1e-4)):.3f})", level="verbose")
                 return (dependent, "Constant")
         else:
             lo, hi = sorted([M_Y * (1 - self.constancy_threshold), M_Y * (1 + self.constancy_threshold)])
+            self._log(f"    band=[{lo:.4g}, {hi:.4g}], frac_in={float(np.mean((Y>lo)&(Y<hi))):.3f}", level="verbose")
             if np.mean((Y > lo) & (Y < hi)) > 0.95:
+                self._log(f"    -> Constant", level="verbose")
                 return (dependent, "Constant")
 
         # Linearity check
+        self._log(f"  Checking linearity...", level="verbose")
+
         # Sort by X, compute finite-difference slopes, test constancy
         sorted_idx = np.argsort(X)
         X_s = X[sorted_idx]
@@ -173,46 +178,61 @@ class BACON3F:
 
         median_slope = np.median(slopes)
         slope_cv = iqr(slopes) / (np.abs(median_slope) + 1e-8)
+        self._log(f"    median_slope={median_slope:.4g}, slope_cv={slope_cv:.4g} vs thr={self.constancy_threshold}", level="verbose")
 
         if slope_cv < self.constancy_threshold:
             m = float(median_slope)
             intercept = float(np.median(Y - m * X))
             intercept_cv = np.abs(intercept) / (np.abs(M_Y) + 1e-8)
+            self._log(f"    m={m:.4g}, intercept={intercept:.4g}, intercept_cv={intercept_cv:.4g}", level="verbose")
 
             if intercept_cv < self.constancy_threshold:
                 # Negligible intercept: y = mx -> invariant is y/x
                 new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
                 vals = Y / safe_X
+                self._log(f"    -> Linear (negligible intercept) => {new_expr}", level="verbose")
                 return (Term(new_expr, vals), "Linear")
             else:
                 # Significant intercept: invariant is y − mx
                 m_sym = float(f"{m:.4g}")
                 new_expr = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
                 vals = Y - m * X
+                self._log(f"    -> Linear (significant intercept) => {new_expr}", level="verbose")
                 return (Term(new_expr, vals), "Linear")
         
+        # Uncorrelatedness check
+        self._log(f"  Checking uncorrelatedness...", level="verbose")
+
         r = calculate_r(X, Y)
 
-        # Uncorrelatedness check
+        self._log(f"    Pearson r={r:.4f} vs r_threshold={self.r_threshold}", level="verbose")
+
         if np.abs(r) < self.r_threshold:
+            self._log(f"    -> Null (uncorrelated)", level="verbose")
             return (None, "Null")
 
         # Monotonic trend check
+        self._log(f"  Checking for monotonic trend...", level="verbose")
         if r > 0:
             # co-varying: divide to get invariant
             new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
             if str(new_expr) in self.known_expressions:
+                self._log(f"    -> Null (Ratio {new_expr} already known)", level="verbose")
                 return (None, "Null")
             vals = Y / safe_X
+            self._log(f"    -> Ratio => {new_expr}", level="verbose")
             return (Term(new_expr, vals), "Ratio")
         elif r < 0:
             # inversely varying: multiply to get invariant
             new_expr = dependent.symbol * independent.symbol # type: ignore[operator]
             if str(new_expr) in self.known_expressions:
+                self._log(f"    -> Null (Product {new_expr} already known)", level="verbose")
                 return (None, "Null")
             vals = Y * X
+            self._log(f"    -> Product => {new_expr}", level="verbose")
             return (Term(new_expr, vals), "Product")
         
+        self._log(f"    -> Null (r=0)", level="verbose")
         return (None, "Null")
     
 
@@ -282,9 +302,9 @@ class BACON3F:
         """
         if expr is None or self.target_values is None:
             return {
-                "R-squared": 0.0,
-                "MSE": float("inf"),
-                "MAE": float("inf"),
+                "R-squared": float("nan"),
+                "MSE": float("nan"),
+                "MAE": float("nan"),
             }
         
         free_syms = list(expr.free_symbols)
@@ -294,7 +314,7 @@ class BACON3F:
             args = [self.sym_to_vals[str(s)] for s in free_syms]
             y_pred = func(*args)
         except (KeyError, Exception):
-            return {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")}
+            return {"R-squared": float("nan"), "MSE": float("nan"), "MAE": float("nan")}
 
         return {
             "R-squared": calculate_r2(self.target_values, y_pred),
@@ -303,7 +323,7 @@ class BACON3F:
         }
     
 
-    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str, dict[str, float]]:
+    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 73) -> tuple[str, dict[str, float]]:
         """
         Run the BACON.3F discovery loop.
 
@@ -352,13 +372,14 @@ class BACON3F:
             self.variable_pool.append(var)
             self.known_expressions.add(str(sym))
             self.sym_to_vals[str(sym)] = col_values
+
+        self._log(f"Pool init: {len(self.variable_pool)} vars: {[str(v.symbol) for v in self.variable_pool]}", level="verbose")
         
         if self.target_var is None:
             self._log("Stop: target variable not found")
-            return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
+            return ("No law found", {"R-squared": float("nan"), "MSE": float("nan"), "MAE": float("nan")})
 
         self._log(f"Starting discovery. Target: '{str(self.target_var)}'. Seed: {seed}. Shape: {data.shape}")
-
 
         # Main loop
         for i in range(self.max_depth):
@@ -367,8 +388,11 @@ class BACON3F:
             candidates_this_layer = []
 
             for (dependent, independent) in permutations(self.variable_pool, 2):
+                self._log(f"Pair: ({dependent.symbol}, {independent.symbol})", level="verbose")
+
                 # Skip pairs already checked in previous layers
                 if (str(dependent.symbol), str(independent.symbol)) in self.tried_permutations:
+                    self._log(f"  Skip: already tried", level="verbose")
                     continue
 
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
@@ -376,13 +400,14 @@ class BACON3F:
                 result, relation_type = self._check(dependent, independent)
 
                 if result is None:
+                    self._log(f"  No composite produced", level="verbose")
                     continue
 
                 if relation_type == "Constant":
+                    self._log(f"  Constant: {result.symbol}", level="verbose")
                     # Only record laws that involve the target variable
                     if self._contains_target(result.symbol) and str(result.symbol) not in self.discovered_strs:
-                        # TODO: loud
-                        # self._log(f"  Discovered law: {str(result.symbol)} = {np.mean(result.values):.4g}")
+                        self._log(f"  Contains target & novel -> evaluating as candidate law", level="verbose")
                         self.discovered_strs.add(str(result.symbol))
                         self.known_expressions.add(str(result.symbol))
 
@@ -395,6 +420,7 @@ class BACON3F:
 
                         diagnostics = self._get_diagnostics(rearranged)
                         self.discovered_laws.append((eq_str, diagnostics))
+                        self._log(f"  Candidate: {eq_str}  (R²={diagnostics['R-squared']:.4f}, MSE={diagnostics['MSE']:.4g}, MAE={diagnostics['MAE']:.4g})", level="verbose")
 
                         # Early stop if law is good enough
                         if diagnostics["R-squared"] >= self.r2_threshold:
@@ -406,6 +432,7 @@ class BACON3F:
 
                 # Non-constant: promote composite into pool for next layer
                 self.known_expressions.add(str(result.symbol))
+                self._log(f"  Promote -> {result.symbol}", level="verbose")
                 candidates_this_layer.append(result)
 
             if not candidates_this_layer:
@@ -413,7 +440,10 @@ class BACON3F:
                 break
             
             self.variable_pool.extend(candidates_this_layer)
-            self._log(f"Layer {i+1} complete. Promoted: {[str(v.symbol) for v in candidates_this_layer]}")
+            if self.log_level == "verbose":
+                self._log(f"Layer {i+1} complete. Promoted: {[str(v.symbol) for v in candidates_this_layer]}", level="verbose")
+            else:
+                self._log(f"Layer {i+1} complete. Promoted {len(candidates_this_layer)} candidates.")
         
         # Post-loop: return best of whatever was found
         if not self.discovered_laws:

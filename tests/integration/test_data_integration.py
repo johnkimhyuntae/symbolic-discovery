@@ -36,7 +36,7 @@ class TestLoadSyntheticAndTextbook:
     @pytest.mark.parametrize("key", ["S1", "S2", "S3", "S4", "T1", "T2", "T3", "T4", "T5"])
     def test_load_returns_train_test_and_none_pretty_map(self, key):
         cfg = CATALOGUE[key]
-        train_df, test_df, pretty_map = load(cfg, n_samples=100, seed=42)
+        train_df, test_df, pretty_map = load(cfg, n_samples=100, seed=73)
 
         assert isinstance(train_df, pd.DataFrame)
         assert isinstance(test_df, pd.DataFrame)
@@ -44,13 +44,13 @@ class TestLoadSyntheticAndTextbook:
 
     def test_target_column_present_in_both_splits(self):
         cfg = CATALOGUE["S1"]
-        train_df, test_df, _ = load(cfg, n_samples=100, seed=42)
+        train_df, test_df, _ = load(cfg, n_samples=100, seed=73)
         assert cfg.target in train_df.columns
         assert cfg.target in test_df.columns
 
     def test_all_variables_present_in_both_splits(self):
         cfg = CATALOGUE["S2"]
-        train_df, test_df, _ = load(cfg, n_samples=100, seed=42)
+        train_df, test_df, _ = load(cfg, n_samples=100, seed=73)
         for var in cfg.variables:
             assert var in train_df.columns, f"missing {var} in train"
             assert var in test_df.columns, f"missing {var} in test"
@@ -58,22 +58,22 @@ class TestLoadSyntheticAndTextbook:
     @pytest.mark.parametrize("n_samples", [50, 100, 250, 500])
     def test_eighty_twenty_split(self, n_samples):
         cfg = CATALOGUE["S1"]
-        train_df, test_df, _ = load(cfg, n_samples=n_samples, seed=42)
+        train_df, test_df, _ = load(cfg, n_samples=n_samples, seed=73)
         assert len(train_df) == int(n_samples * 0.8)
         assert len(test_df) == n_samples - int(n_samples * 0.8)
         assert len(train_df) + len(test_df) == n_samples
 
     def test_split_is_deterministic(self):
         cfg = CATALOGUE["S1"]
-        a_train, a_test, _ = load(cfg, n_samples=100, seed=42)
-        b_train, b_test, _ = load(cfg, n_samples=100, seed=42)
+        a_train, a_test, _ = load(cfg, n_samples=100, seed=73)
+        b_train, b_test, _ = load(cfg, n_samples=100, seed=73)
         pd.testing.assert_frame_equal(a_train, b_train)
         pd.testing.assert_frame_equal(a_test, b_test)
 
     def test_noise_perturbs_target_only(self):
         cfg = CATALOGUE["S1"]
-        clean_train, _, _ = load(cfg, noise=0.0, n_samples=100, seed=42)
-        noisy_train, _, _ = load(cfg, noise=0.1, n_samples=100, seed=42)
+        clean_train, _, _ = load(cfg, noise=0.0, n_samples=100, seed=73)
+        noisy_train, _, _ = load(cfg, noise=0.1, n_samples=100, seed=73)
 
         # Target column should differ; feature columns should not.
         assert not clean_train[cfg.target].equals(noisy_train[cfg.target])
@@ -84,9 +84,9 @@ class TestLoadSyntheticAndTextbook:
 
     def test_zero_noise_is_identical_to_clean(self):
         cfg = CATALOGUE["T1"]
-        clean_train, clean_test, _ = load(cfg, noise=0.0, n_samples=100, seed=42)
+        clean_train, clean_test, _ = load(cfg, noise=0.0, n_samples=100, seed=73)
         also_clean_train, also_clean_test, _ = load(
-            cfg, noise=0.0, noise_type="additive", n_samples=100, seed=42,
+            cfg, noise=0.0, noise_type="additive", n_samples=100, seed=73,
         )
         pd.testing.assert_frame_equal(clean_train, also_clean_train)
         pd.testing.assert_frame_equal(clean_test, also_clean_test)
@@ -95,15 +95,15 @@ class TestLoadSyntheticAndTextbook:
     def test_both_noise_types_produce_finite_values(self, noise_type):
         cfg = CATALOGUE["S2"]
         train_df, test_df, _ = load(
-            cfg, noise=0.05, noise_type=noise_type, n_samples=100, seed=42,
+            cfg, noise=0.05, noise_type=noise_type, n_samples=100, seed=73,
         )
         assert np.isfinite(train_df[cfg.target]).all()
         assert np.isfinite(test_df[cfg.target]).all()
 
     def test_different_seeds_produce_different_data(self):
         cfg = CATALOGUE["S2"]
-        a_train, _, _ = load(cfg, n_samples=100, seed=42)
-        b_train, _, _ = load(cfg, n_samples=100, seed=43)
+        a_train, _, _ = load(cfg, n_samples=100, seed=73)
+        b_train, _, _ = load(cfg, n_samples=100, seed=74)
         # Synthetic data is sampled per-seed so the two should differ.
         assert not a_train.equals(b_train)
 
@@ -118,7 +118,7 @@ class TestExpandThenLoad:
         assert keys == ["S1", "S2", "S3", "S4"]
         for k in keys:
             cfg = resolve(k)
-            train_df, test_df, _ = load(cfg, n_samples=50, seed=42)
+            train_df, test_df, _ = load(cfg, n_samples=50, seed=73)
             assert len(train_df) > 0 and len(test_df) > 0
 
     def test_T_family_wildcard_expands_and_each_loads(self):
@@ -126,7 +126,7 @@ class TestExpandThenLoad:
         assert keys == ["T1", "T2", "T3", "T4", "T5"]
         for k in keys:
             cfg = resolve(k)
-            train_df, test_df, _ = load(cfg, n_samples=50, seed=42)
+            train_df, test_df, _ = load(cfg, n_samples=50, seed=73)
             assert cfg.target in train_df.columns
 
     def test_mixed_selectors_preserve_order(self):
@@ -167,7 +167,7 @@ class TestCustomCsv:
         df.to_csv(csv_path, index=False)
 
         cfg = resolve(str(csv_path), target="y")
-        train_df, test_df, pretty_map = load(cfg, n_samples=20, seed=42)
+        train_df, test_df, pretty_map = load(cfg, n_samples=20, seed=73)
 
         assert pretty_map is None  # documented for family C
         assert "y" in train_df.columns
@@ -181,8 +181,8 @@ class TestCustomCsv:
         }).to_csv(csv_path, index=False)
 
         cfg = resolve(str(csv_path), target="y")
-        clean, _, _ = load(cfg, noise=0.0, n_samples=50, seed=42)
-        noisy, _, _ = load(cfg, noise=0.1, n_samples=50, seed=42)
+        clean, _, _ = load(cfg, noise=0.0, n_samples=50, seed=73)
+        noisy, _, _ = load(cfg, noise=0.1, n_samples=50, seed=73)
 
         assert not clean["y"].equals(noisy["y"])
         pd.testing.assert_series_equal(
@@ -205,7 +205,7 @@ class TestFeynmanLoadPipeline:
         assert len(cfg.variables) > 0
 
         train_df, test_df, pretty_map = load(
-            cfg, n_samples=50, seed=42, feynman_root=FEYNMAN_ROOT,
+            cfg, n_samples=50, seed=73, feynman_root=FEYNMAN_ROOT,
         )
         assert cfg.target in train_df.columns
         assert cfg.target in test_df.columns
@@ -229,7 +229,7 @@ class TestFeynmanLoadPipeline:
     def test_pretty_map_includes_squared_and_cubed_variants(self):
         cfg = resolve("F1", feynman_root=FEYNMAN_ROOT)
         _, _, pretty_map = load(
-            cfg, n_samples=50, seed=42, feynman_root=FEYNMAN_ROOT,
+            cfg, n_samples=50, seed=73, feynman_root=FEYNMAN_ROOT,
         )
         assert pretty_map is not None
         # Every safe column should also have x_n² and x_n³ keys.
@@ -242,10 +242,10 @@ class TestFeynmanLoadPipeline:
     def test_feynman_load_is_deterministic(self):
         cfg = resolve("F1", feynman_root=FEYNMAN_ROOT)
         a_train, a_test, _ = load(
-            cfg, n_samples=50, seed=42, feynman_root=FEYNMAN_ROOT,
+            cfg, n_samples=50, seed=73, feynman_root=FEYNMAN_ROOT,
         )
         b_train, b_test, _ = load(
-            cfg, n_samples=50, seed=42, feynman_root=FEYNMAN_ROOT,
+            cfg, n_samples=50, seed=73, feynman_root=FEYNMAN_ROOT,
         )
         pd.testing.assert_frame_equal(a_train, b_train)
         pd.testing.assert_frame_equal(a_test, b_test)

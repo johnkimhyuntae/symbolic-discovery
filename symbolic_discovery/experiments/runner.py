@@ -60,7 +60,7 @@ def _build_runs(args) -> List[Run]:
     noise       = args.noise       or study.get("noise", [0.0])
     noise_types = args.noise_types or study.get("noise_types", ["multiplicative"])
     n_samples   = args.n_samples   or study.get("n_samples", [1000])
-    seeds       = args.seeds       or study.get("seeds", [42])
+    seeds       = args.seeds       or study.get("seeds", [73])
 
     if not variants:
         raise ValueError(
@@ -99,6 +99,14 @@ def run_experiment(args) -> None:
 
     output_path = os.path.join(args.output_root, args.output)
 
+    # Logging to file if verbose
+    args.log_file = None
+    if  args.log_level == "verbose":
+        args.log_file = os.path.splitext(output_path)[0] + ".decisions.log"
+        os.makedirs(os.path.dirname(args.log_file) or ".", exist_ok=True)
+        open(args.log_file, "w").close()
+        print(f"Verbose decision log: {args.log_file}")
+
     file_exists = os.path.isfile(output_path)
     with open(output_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -107,7 +115,8 @@ def run_experiment(args) -> None:
 
         # Total run count after dataset selector fanout, for progress.
         total = sum(len(fanout[r.dataset]) for r in runs)
-        print(f"Total runs (after dataset fanout): {total}")
+        if args.log_level != "quiet":
+            print(f"Total runs (after dataset fanout): {total}")
 
         for run in runs:
             for ds_key in fanout[run.dataset]:
@@ -121,7 +130,8 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
     try:
         config = resolve(ds_key, args.feynman_root, args.target)
     except ValueError as e:
-        print(f"Skipping {ds_key}: {e}")
+        if args.log_level != "quiet":
+            print(f"Skipping {ds_key}: {e}")
         return
 
     run_id = (
@@ -136,16 +146,17 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
     if exclusion:
         # --exclude: skip transcendental
         if args.exclude and exclusion == "transcendental":
-            print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
+            if args.log_level != "quiet":
+                print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
             return
 
         # --exclude-bacon: skip all unsolvable by BACON
         if args.exclude_bacon:
-            print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
+            if args.log_level != "quiet":
+                print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
             return
 
-    if is_bacon and exclusion and exclusion != "complex":
-        # TESTING : allow complex for bacon
+    if is_bacon and exclusion:
         result = SolverResult(
             equation="No law found",
             raw_equation=(
@@ -158,6 +169,7 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
             mae=float("nan"),
             time_sec=0.0,
             status="Failure",
+            logs=[]
         )
         bench_pretty_map = None
 
@@ -172,14 +184,25 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
         )
 
         SolverClass = SOLVER_REGISTRY[v.model]
-        solver = SolverClass(verbose=args.verbose, **v.params)
+
+        solver = SolverClass(log_level=args.log_level, **v.params)
         result = solver.solve(train_df, test_df, config.target, run.seed)
+
+        if args.log_file:
+            try:
+                with open(args.log_file, "a") as fh:
+                    fh.write(f"\n=== {run_id} ===\n")
+                    fh.writelines(f"{log}\n" for log in result.logs)
+            except OSError:
+                pass
 
     pretty_eq = pretty_equation(result.equation or "", bench_pretty_map)
     eq_preview = (pretty_eq or "").replace("\n", " ").strip()
 
     _write_row(writer, run_id, run, config, v, result, eq_preview)
-    _print_progress(run_id, run, config, v, result, eq_preview)
+
+    if args.log_level != "quiet":
+        _print_progress(run_id, run, config, v, result, eq_preview)
 
 
 def _write_row(writer, run_id, run, config, v, result, eq_preview) -> None:
@@ -240,7 +263,7 @@ examples:
     %(prog)s --models bacon3f bacon7f --datasets S T
 
     # One-knob hyperparameter sweep
-    %(prog)s --datasets S T --sweep bacon7f.n_folds=1,3,5,7 --seeds 42 43 44
+    %(prog)s --datasets S T --sweep bacon7f.n_folds=1,3,5,7 --seeds 73 74 75
 
     # Named ablation variants
     %(prog)s --datasets S T --noise 0.0 0.05 \\
@@ -254,7 +277,7 @@ examples:
 
     # Sample-efficiency curve
     %(prog)s --models bacon7f pysr --datasets T1 T2 \\
-        --n-samples 50 100 250 500 1000 --seeds 42 43 44""",
+        --n-samples 50 100 250 500 1000 --seeds 73 74 75""",
     )
 
     # Solver / variant specification
@@ -303,21 +326,22 @@ examples:
     )
     parser.add_argument(
         "--seeds", nargs="+", type=int, default=None,
-        help="Random seeds. Default: 42",
+        help="Random seeds. Default: 73",
     )
 
     # Output and misc
     parser.add_argument(
-        "--output_root", type=str, default="results",
+        "--log-level", type=str, default="default",
+        choices=["default", "verbose", "quiet"],
+        help="Logging level. Options: default, verbose, quiet (default: default)",
+    )
+    parser.add_argument(
+        "--output-root", type=str, default="results",
         help="Root directory for output CSV files (default: results)",
     )
     parser.add_argument(
         "--output", type=str, default="experiment_results.csv",
         help="Output CSV path (default: experiment_results.csv)",
-    )
-    parser.add_argument(
-        "--verbose", action="store_true",
-        help="Verbose solver output",
     )
     parser.add_argument(
         "--exclude", action="store_true",

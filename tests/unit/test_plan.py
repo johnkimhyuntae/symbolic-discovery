@@ -69,16 +69,16 @@ class TestRun:
     def test_basic_construction(self):
         r = Run(
             variant=self._v(), dataset="S1", noise=0.0,
-            noise_type="multiplicative", n_samples=100, seed=42,
+            noise_type="multiplicative", n_samples=100, seed=73,
         )
         assert r.dataset == "S1"
-        assert r.seed == 42
+        assert r.seed == 73
         assert r.variant.model == KNOWN_MODEL
 
     def test_is_frozen(self):
         r = Run(
             variant=self._v(), dataset="S1", noise=0.0,
-            noise_type="multiplicative", n_samples=100, seed=42,
+            noise_type="multiplicative", n_samples=100, seed=73,
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             r.seed = 99  # type: ignore[misc]
@@ -160,9 +160,9 @@ class TestParseSweepSpec:
         assert [v.params["flag"] for v in variants] == [True, False]
 
     def test_single_value_sweep_produces_one_variant(self):
-        variants = parse_sweep_spec(f"{KNOWN_MODEL}.k=42")
+        variants = parse_sweep_spec(f"{KNOWN_MODEL}.k=67")
         assert len(variants) == 1
-        assert variants[0].params == {"k": 42}
+        assert variants[0].params == {"k": 67}
 
     def test_missing_param_raises(self):
         with pytest.raises(ValueError, match="--sweep"):
@@ -184,11 +184,11 @@ class TestLoadStudyFile:
         path = tmp_path / "study.yaml"
         path.write_text(yaml.safe_dump({
             "datasets": ["S1", "S2"],
-            "seeds": [42, 43],
+            "seeds": [73, 74],
         }))
         cfg = load_study_file(str(path))
         assert cfg["datasets"] == ["S1", "S2"]
-        assert cfg["seeds"] == [42, 43]
+        assert cfg["seeds"] == [73, 74]
 
     def test_empty_file_returns_empty_dict(self, tmp_path):
         path = tmp_path / "empty.yaml"
@@ -263,7 +263,7 @@ class TestExpandToRuns:
     def test_returns_run_instances(self):
         runs = expand_to_runs(
             variants=[self._v()], datasets=["S1"], noise=[0.0],
-            noise_types=["multiplicative"], n_samples=[100], seeds=[42],
+            noise_types=["multiplicative"], n_samples=[100], seeds=[73],
         )
         assert len(runs) == 1
         assert isinstance(runs[0], Run)
@@ -271,7 +271,7 @@ class TestExpandToRuns:
     def test_empty_axis_returns_empty(self):
         runs = expand_to_runs(
             variants=[self._v()], datasets=[], noise=[0.0],
-            noise_types=["multiplicative"], n_samples=[100], seeds=[42],
+            noise_types=["multiplicative"], n_samples=[100], seeds=[73],
         )
         assert runs == []
 
@@ -282,7 +282,7 @@ class TestExpandToRuns:
             noise=[0.0],
             noise_types=["multiplicative"],
             n_samples=[100],
-            seeds=[42],
+            seeds=[73],
         )
         names_in_order = [r.variant.name for r in runs]
         assert names_in_order == ["a", "a", "b", "b"]

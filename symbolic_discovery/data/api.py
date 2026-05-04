@@ -38,7 +38,7 @@ def inject_noise(
     target: str,
     noise: float = 0.0,
     noise_type: str = "multiplicative",
-    seed: int = 42,
+    seed: int = 73,
 ) -> pd.DataFrame:
     """
     Add Gaussian noise scaled to the target column's range.
@@ -54,7 +54,7 @@ def inject_noise(
     out = df.copy()
     if noise_type == "multiplicative":
         out[target] = y * (1 + rng.normal(0.0, noise, len(y)))
-    else:
+    else: # additive
         out[target] = y + rng.normal(0.0, noise * scale, len(y))
     return out
 
@@ -157,7 +157,7 @@ def load(
     *,
     noise: float = 0.0,
     noise_type: str = "multiplicative",
-    seed: int = 42,
+    seed: int = 73,
     n_samples: int = 1000,
     feynman_root: str = "feynman",
 ) -> tuple[pd.DataFrame, pd.DataFrame, Optional[dict[str, str]]]:

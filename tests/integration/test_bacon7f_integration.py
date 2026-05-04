@@ -34,7 +34,7 @@ def test_recovers_law_on_clean_data(dataset_id, expected_expr):
 
     solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
                      initial_epsilon=0.01, initial_delta=0.01, 
-                     verbose=False)
+                     log_level="quiet")
     equation, _ = solver.discover(train_df, target_col=config.target)
 
     assert equation != "No law found"
@@ -60,7 +60,7 @@ def test_expected_failures_clean(dataset_id):
     train_df, test_df, _ = load(config, noise=0.0)
     solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
                      initial_epsilon=0.01, initial_delta=0.01, 
-                     verbose=False)
+                     log_level="quiet")
     equation, _ = solver.discover(train_df, target_col=config.target)
 
     is_failure = equation == "No law found"
@@ -80,7 +80,7 @@ class TestNFoldsSensitivity:
         train_df, test_df, _ = load(config, noise=0.0)
         solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
                          initial_epsilon=0.01, initial_delta=0.01, 
-                         n_folds=1, verbose=False)
+                         n_folds=1, log_level="quiet")
         equation, _ = solver.discover(train_df, target_col=config.target)
         assert equation != "No law found"
         r2, _, _ = equation_to_metrics(equation, test_df, config.target)
@@ -93,7 +93,7 @@ class TestNFoldsSensitivity:
         train_df, test_df, _ = load(config, noise=0.0)
         solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
                          initial_epsilon=0.01,initial_delta=0.01, 
-                         n_folds=n_folds, verbose=False)
+                         n_folds=n_folds, log_level="quiet")
         equation, _ = solver.discover(train_df, target_col=config.target)
         assert equation != "No law found"
         r2, _, _ = equation_to_metrics(equation, test_df, config.target)
@@ -109,8 +109,8 @@ def test_noise_resilience_vs_bacon3f(dataset_id):
     train_df, _, _ = load(config, noise=0.02)
     target = config.target
 
-    _, diag_3 = BACON3F(verbose=False).discover(train_df, target_col=target)
-    _, diag_7 = BACON7F(verbose=False).discover(train_df, target_col=target)
+    _, diag_3 = BACON3F(log_level="quiet").discover(train_df, target_col=target)
+    _, diag_7 = BACON7F(log_level="quiet").discover(train_df, target_col=target)
 
     r2_3 = diag_3["R-squared"]
     r2_7 = diag_7["R-squared"]
@@ -128,10 +128,10 @@ class TestDeterminism:
         config = CATALOGUE["S2"]
         train_df, test_df, _ = load(config, noise=0.0)
 
-        eq_a, _ = BACON7F(verbose=False).discover(
-            train_df, target_col=config.target, seed=42)
-        eq_b, _ = BACON7F(verbose=False).discover(
-            train_df, target_col=config.target, seed=42)
+        eq_a, _ = BACON7F(log_level="quiet").discover(
+            train_df, target_col=config.target, seed=73)
+        eq_b, _ = BACON7F(log_level="quiet").discover(
+            train_df, target_col=config.target, seed=73)
 
         r2_a, _, _ = equation_to_metrics(eq_a, test_df, config.target)
         r2_b, _, _ = equation_to_metrics(eq_b, test_df, config.target)
@@ -150,7 +150,7 @@ class TestEdgeCases:
             "x": np.linspace(1, 10, 20),
             "y": np.full(20, 3.14),
         })
-        eq, _ = BACON7F(verbose=False).discover(df, target_col="y")
+        eq, _ = BACON7F(log_level="quiet").discover(df, target_col="y")
         _, mse, _ = equation_to_metrics(eq, df, "y")
         assert mse < 1e-10
 
@@ -158,7 +158,7 @@ class TestEdgeCases:
         """Identical columns should still be solved."""
         vals = np.linspace(1, 10, 20)
         df = pd.DataFrame({"x": vals, "y": vals.copy()})
-        equation, _ = BACON7F(verbose=False).discover(df, target_col="y")
+        equation, _ = BACON7F(log_level="quiet").discover(df, target_col="y")
         r2, _, _ = equation_to_metrics(equation, df, "y")
         assert equation != "No law found"
         assert r2 > 0.999
@@ -166,7 +166,7 @@ class TestEdgeCases:
     def test_single_column_returns_failure_not_crash(self):
         """A missing feature column should fail without crashing."""
         df = pd.DataFrame({"y": np.linspace(1, 10, 20)})
-        equation, _ = BACON7F(verbose=False).discover(df, target_col="y")
+        equation, _ = BACON7F(log_level="quiet").discover(df, target_col="y")
         assert equation == "No law found"
 
 
@@ -176,7 +176,7 @@ class TestVotingFiltersNoise:
 
     def test_localised_corruption_handled(self):
         """Voting should tolerate a corrupted contiguous slice."""
-        np.random.seed(42)
+        np.random.seed(73)
         x = np.linspace(1, 10, 60)
         y = 5.0 / x
 
@@ -185,7 +185,7 @@ class TestVotingFiltersNoise:
         y_noisy[20:40] += np.random.normal(0, 0.02, 20)
 
         df = pd.DataFrame({"x": x, "y": y_noisy})
-        solver = BACON7F(r2_threshold=0.9, n_folds=3, verbose=False)
+        solver = BACON7F(r2_threshold=0.9, n_folds=3, log_level="quiet")
         equation, _ = solver.discover(df, target_col="y")
         r2, _, _ = equation_to_metrics(equation, df, "y")
 
