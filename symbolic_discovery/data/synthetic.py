@@ -14,7 +14,7 @@ def generate(
     config: DatasetConfig,
     *,
     n_samples: int = 1000,
-    seed: int = 42,
+    seed: int = 73,
 ) -> pd.DataFrame:
     """Generate a synthetic DataFrame from a catalogue config."""
     rng = np.random.default_rng(seed)
