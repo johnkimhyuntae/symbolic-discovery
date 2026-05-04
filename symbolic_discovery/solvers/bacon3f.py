@@ -11,18 +11,18 @@ class BACON3FSolver(BaseSolver):
     """
     Wrapper that adapts the BACON.3F core algorithm to the BaseSolver interface.
     """
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any):        
         self._kwargs = kwargs
 
 
-    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
+    def solve(self, train_df: pd.DataFrame, test_df: pd.DataFrame,
               target_col: str, seed: int) -> SolverResult:
         """
         Run BACON.3F and return the best discovered law as a SolverResult.
         """
         start_time = time.time()
         model = BACON3F(**self._kwargs)
-        
+
         if target_col not in train_df.columns:
             return SolverResult(
                 equation="Error",
@@ -32,6 +32,7 @@ class BACON3FSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
+                logs=[],
             )
 
         try:
@@ -47,8 +48,9 @@ class BACON3FSolver(BaseSolver):
                     mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
+                    logs=[],
                 )
-            
+
             eq_clean = eq  # TODO: For now, just return the raw equation
 
             # Evaluate on test set if possible
@@ -63,8 +65,9 @@ class BACON3FSolver(BaseSolver):
                     mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
+                    logs=[],
                 )
-            
+
             else:
                 return SolverResult(
                     equation=eq_clean,
@@ -74,8 +77,9 @@ class BACON3FSolver(BaseSolver):
                     mae=mae,
                     time_sec=duration,
                     status="Found",
+                    logs=model.logs # temporary solution to expose logs for experiments
                 )
-        
+
         except Exception as e:
             return SolverResult(
                 equation="Error",
@@ -85,4 +89,6 @@ class BACON3FSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
+                logs=[]
             )
+        

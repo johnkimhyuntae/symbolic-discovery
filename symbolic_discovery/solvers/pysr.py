@@ -88,9 +88,15 @@ class PySRSolver(BaseSolver):
     """Wrapper for PySR, standardised to the BaseSolver interface."""
 
     def __init__(self, **kwargs: Any):
-        self.verbose = kwargs.get("verbose", False)
+        # PySR uses single 'verbosity' flag so we map here.
+        if "log_level" in kwargs:
+            self.verbose = True if kwargs["log_level"] == "verbose" else False
+            kwargs.pop("log_level")
+        else:
+            self.verbose = False
+
         self.kwargs = kwargs
-        self.kwargs.pop("verbose", None)
+        
 
     def solve(
         self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
@@ -108,6 +114,7 @@ class PySRSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
+                logs=[],
             )
 
         X = train_df.drop(columns=[target_col])
@@ -115,7 +122,6 @@ class PySRSolver(BaseSolver):
         X, rename_map = _sanitise_columns(X)
 
         set_params: dict[str, Any] = {
-            # "niterations": 40,
             "binary_operators": ["+", "-", "*", "/"], # standardise operator set with BACON
             "verbosity": 1 if self.verbose else 0,
             "parallelism": "serial",
@@ -123,7 +129,6 @@ class PySRSolver(BaseSolver):
             "random_state": seed,
             "temp_equation_file": True,
             "delete_tempfiles": True,
-            "maxdepth": 6, # same as default max_depth for BACON.3F and BACON.7F
         }
 
         for key in set_params:
@@ -143,6 +148,7 @@ class PySRSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
+                logs=[]
             )
 
         # Metrics calculation
@@ -165,6 +171,7 @@ class PySRSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
+                logs=[],
             )
 
         # Equation extraction
@@ -180,6 +187,7 @@ class PySRSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start,
                 status="Error",
+                logs=[],
             )
 
         duration = time.time() - start
@@ -193,6 +201,7 @@ class PySRSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=duration,
                 status="Failure",
+                logs=[],
             )
 
         raw_eq = _unsanitise_equation(raw_eq, rename_map)
@@ -204,4 +213,5 @@ class PySRSolver(BaseSolver):
             r2=r2, mse=mse, mae=mae,
             time_sec=duration,
             status="Found",
+            logs=[], # For now, empty.
         )

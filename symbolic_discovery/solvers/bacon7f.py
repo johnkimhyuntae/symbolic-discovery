@@ -32,8 +32,9 @@ class BACON7FSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
+                logs=[],
             )
-        
+
         try:
             eq, _ = model.discover(train_df, target_col, seed=seed)
             duration = time.time() - start_time
@@ -47,13 +48,14 @@ class BACON7FSolver(BaseSolver):
                     mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
+                    logs=[],
                 )
-            
+
             eq_clean = eq  # TODO: For now, just return the raw equation
 
             # Evaluate on test set if possible
             r2, mse, mae = equation_to_metrics(eq_clean, test_df, target_col)
-            
+
             if r2 < 0.0:
                 return SolverResult(
                     equation=eq_clean,
@@ -63,8 +65,9 @@ class BACON7FSolver(BaseSolver):
                     mae=float("nan"),
                     time_sec=duration,
                     status="Failure",
+                    logs=[],
                 )
-            
+
             else:
                 return SolverResult(
                     equation=eq_clean,
@@ -74,8 +77,9 @@ class BACON7FSolver(BaseSolver):
                     mae=mae,
                     time_sec=duration,
                     status="Found",
+                    logs=model.logs # temporary solution to expose logs for experiments
                 )
-        
+
         except Exception as e:
             return SolverResult(
                 equation="Error",
@@ -85,4 +89,6 @@ class BACON7FSolver(BaseSolver):
                 mae=float("nan"),
                 time_sec=time.time() - start_time,
                 status="Error",
+                logs=[]
             )
+        
