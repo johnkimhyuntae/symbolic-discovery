@@ -27,22 +27,18 @@ class Term:
 
 class BACON7F:
     """
-    BACON.7F: a flat tabular adaptation of Miller's BACON.7 (2024).
+    BACON.7F: a flat tabular data adaptation of Miller's BACON.7.
 
     Extends BACON.3F's pool-based discovery with noise-resilience
     mechanisms from Miller and more, adapted for flat tabular data:
 
-    1. Subset voting: each directed pair's data is randomly 
-    partitioned into n_folds subsamples. The heuristic layer 
-    classifies each subsample independently, and a majority vote 
-    determines the winning relation type. This filters noisy 
-    misclassifications: if 2 of 3 folds say "Ratio" and 1 says 
-    "Linear" due to noise, "Ratio" wins.
+    1. Fold partitioning and voting: each directed pair is classified on
+    multiple random folds, and a majority vote determines the winning
+    relation type.
 
     2. Symmetry-apply: the winning structural form is 
-    re-applied to the full (unpartitioned) data via _apply, so no 
-    rows are lost. For linear relations the slope is recomputed on 
-    full data rather than inheriting a fold-local estimate.
+    re-applied to the full data via _apply, so no 
+    rows are lost.
 
     3. Per-layer threshold relaxation: epsilon and delta are 
     multiplied by scale_factor at the start of each layer, 
@@ -53,15 +49,13 @@ class BACON7F:
                  initial_epsilon: float = 0.01,
                  initial_delta: float = 0.1,    
                  c_val: float = 0.05,
-                 r_threshold: float = 0.5,
+                 r_threshold: float = 0.45,
                  scale_factor: float = 1.2,
                  n_folds: int = 5,
                  r2_threshold: float = 0.9,
-                 verbose: bool = False):
+                 log_level: str = "default"):
         """
         Initialise the BACON.7F solver.
-
-        TODO: For now, defaults assume noisy data.
 
         Args:
             max_depth: Maximum number of discovery layers before stopping.
@@ -82,12 +76,13 @@ class BACON7F:
                 and delta at the start of each layer.
             n_folds: Number of random folds to partition each
                 directed pair into for voting. Defaults to 5.
-                Automatically falls back to 1 (no folding) when data
-                is too small for reliable per-fold classification.
+                Automatically reduces n_folds when data is too small for 
+                reliable per-fold classification.
             r2_threshold: Minimum predictive R² for early stopping. When
                 a discovered law meets or exceeds this threshold, the
                 search halts immediately.
-            verbose: If True, print the decision log to stdout.
+            log_level: Controls the verbosity of the decision log. Options are
+                "default", "verbose", and "quiet".
         """
         
         self.max_depth = max_depth
@@ -98,7 +93,7 @@ class BACON7F:
         self.scale_factor = scale_factor
         self.n_folds = n_folds
         self.r2_threshold = r2_threshold
-        self.verbose = verbose
+        self.log_level = log_level
         
         # Internal states
         self.logs: list[str] = []
@@ -118,14 +113,24 @@ class BACON7F:
         self.sym_to_vals: dict[str, np.ndarray] = {}
 
 
-    def _log(self, message: str):
-        """Append to the decision log; print if verbose."""
+    def _log(self, message: str, level: str = "default"):
+        """Append to the decision log / print depending on log_level.
+
+            quiet:      nothing logged or printed.
+            default:    only level="default" calls are emitted.
+            verbose:    all calls (default + verbose) are emitted.
+        """
+        if self.log_level == "quiet":
+            return
+        if level == "verbose" and self.log_level != "verbose":
+            return
+
         self.logs.append(message)
-        if self.verbose:
-            if message:
-                print(f"[BACON.7F] {message}")
-            else:
-                print("")
+
+        if message:
+            print(f"[BACON.7F] {message}")
+        else:
+            print("")
 
     
     def _check(self, dependent: Term, independent: Term) -> str:
@@ -137,12 +142,10 @@ class BACON7F:
         Applies four checks in this order:
 
         1. **Constancy**: is the dependent already constant within 
-            delta? Near-zero means are handled with an absolute-spread 
-            check to avoid the zero-width-bounds problem.
+            delta?
 
-        2. **Linearity**: is |r| close to 1 (within epsilon)? This 
-            correlation-based check is more lenient than BACON.3F's 
-            IQR-based slope check.
+        2. **Linearity**: is |r| close to 1 (within epsilon)? AKA, do 
+            dependent and independent have a near-perfect linear relationship?
 
         3. **Uncorrelatedness**: if the Pearson correlation coefficient 
            |r| < self.r_threshold, the variables are considered uncorrelated, 
@@ -164,37 +167,54 @@ class BACON7F:
         Y = dependent.values
 
         # Constancy check
+        self._log(f"    Checking constancy...", level="verbose")
+
         M_Y = float(np.mean(Y))
         if np.abs(M_Y) < 1e-4:
             if np.mean(np.abs(Y) < 1e-4) > 0.95:
+                self._log(f"      -> Constant (near-zero, frac|Y|<1e-4={float(np.mean(np.abs(Y)<1e-4)):.3f})", level="verbose")
                 return "Constant"
         else:
             lo, hi = sorted([M_Y * (1 - self.delta), M_Y * (1 + self.delta)])
+            self._log(f"      band=[{lo:.4g}, {hi:.4g}], frac_in={float(np.mean((Y>lo)&(Y<hi))):.3f}", level="verbose")
             if np.mean((Y > lo) & (Y < hi)) > 0.95:
+                self._log(f"      -> Constant", level="verbose")
                 return "Constant"
 
         # Linearity check
+        self._log(f"    Checking linearity...", level="verbose")
+
         r = calculate_r(X, Y)
+        self._log(f"      Pearson r={r:.4f}, 1-|r|={1-abs(r):.4g} vs epsilon={self.epsilon}", level="verbose")
         if (1 - abs(r)) < self.epsilon:
+            self._log(f"      -> Linear", level="verbose")
             return "Linear"
 
         # Uncorrelatedness check
+        self._log(f"    Checking uncorrelatedness...", level="verbose")
         if abs(r) < self.r_threshold:
+            self._log(f"      -> Null (uncorrelated)", level="verbose")
             return "Null"
 
         # Monotonic trend checks
+        self._log(f"    Checking for monotonic trend...", level="verbose")
         if r > 0:
             key = f"{dependent.symbol}/{independent.symbol}"
             if key in self.known_expressions:
+                self._log(f"      -> Null (Ratio {key} already known)", level="verbose")
                 return "Null"
+            self._log(f"      -> Ratio => {key}", level="verbose")
             return "Ratio"
         elif r < 0:
             key1 = f"{dependent.symbol}*{independent.symbol}"
             key2 = f"{independent.symbol}*{dependent.symbol}"
             if key1 in self.known_expressions or key2 in self.known_expressions:
+                self._log(f"      -> Null (Product {key1} or {key2} already known)", level="verbose")
                 return "Null"
+            self._log(f"      -> Product => {key1}", level="verbose")
             return "Product"
         
+        self._log(f"      -> Null (r=0)", level="verbose")
         return "Null"
     
 
@@ -213,14 +233,19 @@ class BACON7F:
         RELATION_PRIORITY = {"Constant": 0, "Linear": 1, "Ratio": 2, "Product": 3, "Null": 4}
 
         vote_counts = Counter(votes)
+        self._log(f"    Vote_counts={dict(vote_counts)}", level="verbose")
+        
         top_count = vote_counts.most_common()[0][1]
         tied = [rel for rel, count in vote_counts.items() if count == top_count]
+        self._log(f"    top_count={top_count}, tied={tied}", level="verbose")
 
         if len(tied) == 1:
             winning_rel = tied[0]
         else:
             winning_rel = min(tied, key=lambda r: RELATION_PRIORITY.get(r, 99))
+            self._log(f"    Tiebreak applied", level="verbose")
         
+        self._log(f"    Election winner: {winning_rel}", level="verbose")
         return winning_rel
 
 
@@ -256,37 +281,49 @@ class BACON7F:
         safe_X = np.where(np.abs(X) < 1e-9, 1e-9, X)
 
         if winning_rel == "Constant":
+            self._log(f"      -> Constant: returning {dependent.symbol} unchanged", level="verbose")
             return dependent
 
         if winning_rel == "Ratio":
             term = dependent.symbol / independent.symbol # type: ignore[operator]
             if str(term) in self.known_expressions:
+                self._log(f"      -> None (Ratio {term} already known)", level="verbose")
                 return None
+            self._log(f"      -> Ratio applied to full data ({len(Y)} rows)", level="verbose")
             return Term(term, Y / safe_X)
 
         if winning_rel == "Product":
             term = dependent.symbol * independent.symbol # type: ignore[operator]
             if str(term) in self.known_expressions:
+                self._log(f"      -> None (Product {term} already known)", level="verbose")
                 return None
+            self._log(f"      -> Product applied to full data ({len(Y)} rows)", level="verbose")
             return Term(term, Y * X)
 
         if winning_rel == "Linear":
             c, m = Polynomial.fit(X, Y, 1).convert().coef
+            self._log(f"      Linear fit on full data: m={m:.4g}, c={c:.4g}", level="verbose")
             M_Y = float(np.mean(Y))
+            self._log(f"      intercept_ratio=|c/M_Y|={abs(c / (M_Y + 1e-9)):.4g} vs c_val={self.c_val}", level="verbose")
             if abs(c / (M_Y + 1e-9)) < self.c_val:
                 # Negligible intercept: y ≈ mx -> invariant is y/x
                 term = dependent.symbol / independent.symbol # type: ignore[operator]
                 if str(term) in self.known_expressions:
+                    self._log(f"      -> None ({term} already known)", level="verbose")
                     return None
+                self._log(f"      -> Linear (negligible intercept) => {term}", level="verbose")
                 return Term(term, Y / safe_X)
             else:
                 # Significant intercept: invariant is y − mx
                 m_sym = float(f"{m:.4g}")
                 term = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
                 if str(term) in self.known_expressions:
+                    self._log(f"      -> None ({term} already known)", level="verbose")
                     return None
+                self._log(f"      -> Linear (significant intercept) => {term}", level="verbose")
                 return Term(term, Y - m * X)
-
+            
+        self._log(f"      -> None (unhandled relation: {winning_rel})", level="verbose")
         return None
     
 
@@ -356,9 +393,9 @@ class BACON7F:
         """
         if expr is None or self.target_values is None:
             return {
-                "R-squared": 0.0,
-                "MSE": float("inf"),
-                "MAE": float("inf"),
+                "R-squared": float("nan"),
+                "MSE": float("nan"),
+                "MAE": float("nan"),
             }
         
         free_syms = list(expr.free_symbols)
@@ -368,7 +405,7 @@ class BACON7F:
             args = [self.sym_to_vals[str(s)] for s in free_syms]
             y_pred = func(*args)
         except (KeyError, Exception):
-            return {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")}
+            return {"R-squared": float("nan"), "MSE": float("nan"), "MAE": float("nan")}
 
         return {
             "R-squared": calculate_r2(self.target_values, y_pred),
@@ -377,7 +414,7 @@ class BACON7F:
         }
 
 
-    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 42) -> tuple[str, dict[str, float]]:
+    def discover(self, data: pd.DataFrame, target_col: str, seed: int = 73) -> tuple[str, dict[str, float]]:
         """
         Run the BACON.7F discovery loop.
 
@@ -436,9 +473,11 @@ class BACON7F:
             self.known_expressions.add(str(sym))
             self.sym_to_vals[str(sym)] = col_values
 
+        self._log(f"Pool init: {len(self.variable_pool)} vars: {[str(v.symbol) for v in self.variable_pool]}", level="verbose")
+
         if self.target_var is None:
             self._log("Stop: target variable not found")
-            return ("No law found", {"R-squared": 0.0, "MSE": float("inf"), "MAE": float("inf")})
+            return ("No law found", {"R-squared": float("nan"), "MSE": float("nan"), "MAE": float("nan")})
         
         # Decrease number of folds when data is too small for reliable per-fold classification
         effective_folds = self.n_folds
@@ -451,7 +490,6 @@ class BACON7F:
         self._log(f"Starting discovery. Target: '{str(self.target_var)}'. Seed: {seed}. Shape: {data.shape}")
 
         # Main loop
-
         for i in range(self.max_depth):
             self._log(f"--- Layer {i+1} ---")
 
@@ -462,12 +500,16 @@ class BACON7F:
             self.epsilon *= self.scale_factor
             self.delta *= self.scale_factor
             if self.scale_factor != 1.0:
-                self._log(f"Relaxed parameters: epsilon={self.epsilon:.4g}, delta={self.delta:.4g}")
+                self._log(f"Relaxed parameters: epsilon={self.epsilon:.4g}, delta={self.delta:.4g}", level="verbose")
 
             for (dependent, independent) in permutations(self.variable_pool, 2):
+                self._log(f"Pair: ({dependent.symbol}, {independent.symbol})", level="verbose")
+
                 # Skip pairs already checked in previous layers
                 if (str(dependent.symbol), str(independent.symbol)) in self.tried_permutations:
+                    self._log(f"  Skip: already tried", level="verbose")
                     continue
+
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
                 
                 # Partition into random folds for voting
@@ -476,7 +518,7 @@ class BACON7F:
                 idx_folds = np.array_split(indices, effective_folds)
                 dep_folds = [dependent.values[idx] for idx in idx_folds]
                 ind_folds = [independent.values[idx] for idx in idx_folds]
-
+                self._log(f"  Partitioned into {effective_folds} folds, sizes={[len(f) for f in idx_folds]}", level="verbose")
 
                 # Step 2: Classify on each fold
                 votes = []
@@ -485,15 +527,18 @@ class BACON7F:
                     ind_partitioned = Term(independent.symbol, ind_folds[subset_idx])
                     relation_type = self._check(dep_partitioned, ind_partitioned)
                     votes.append(relation_type)
+                    self._log(f"    Fold {subset_idx} (n={len(dep_folds[subset_idx])}): {relation_type}", level="verbose")
 
                 if not votes:
                     continue
-
+                
+                self._log(f"  Votes collected: {votes}", level="verbose")
 
                 # Step 3: Majority vote with priority tiebreak
                 winning_rel = self._election(votes)
 
                 if winning_rel is None or winning_rel == "Null":
+                    self._log(f"  -> Skip (winner={winning_rel})", level="verbose")
                     continue
                     
                 
@@ -501,12 +546,15 @@ class BACON7F:
                 full_term = self._apply(winning_rel, dependent, independent)
 
                 if full_term is None:
+                    self._log(f"  -> Skip (apply produced None)", level="verbose")
                     continue
 
                 # Handle discovered laws
                 if winning_rel == "Constant":
+                    self._log(f"  Constant: {full_term.symbol}", level="verbose")
                     self.known_expressions.add(str(full_term.symbol))
                     if self._contains_target(full_term.symbol) and str(full_term.symbol) not in self.discovered_strs:
+                        self._log(f"  Contains target & novel -> evaluating as candidate law", level="verbose")
                         self.discovered_strs.add(str(full_term.symbol))
 
                         # Rearrange to target = f(other vars) and evaluate
@@ -518,6 +566,7 @@ class BACON7F:
 
                         diagnostics = self._get_diagnostics(rearranged)
                         self.discovered_laws.append((eq_str, diagnostics))
+                        self._log(f"  Candidate: {eq_str}  (R²={diagnostics['R-squared']:.4f}, MSE={diagnostics['MSE']:.4g}, MAE={diagnostics['MAE']:.4g})", level="verbose")
 
                         # Early stop if law is good enough
                         if diagnostics["R-squared"] >= self.r2_threshold:
@@ -529,6 +578,7 @@ class BACON7F:
 
                 # Non-constant: promote composite into pool for next layer
                 self.known_expressions.add(str(full_term.symbol))
+                self._log(f"  Promote -> {full_term.symbol}", level="verbose")
                 candidates_this_layer.append(full_term)
 
             if not candidates_this_layer:
@@ -536,7 +586,10 @@ class BACON7F:
                 break
             
             self.variable_pool.extend(candidates_this_layer)
-            self._log(f"Layer {i+1} complete. Promoted: {[str(v.symbol) for v in candidates_this_layer]}")
+            if self.log_level == "verbose":
+                self._log(f"Layer {i+1} complete. Promoted: {[str(v.symbol) for v in candidates_this_layer]}", level="verbose")
+            else:
+                self._log(f"Layer {i+1} complete. Promoted {len(candidates_this_layer)} candidates.")
         
         # Post-loop: return best of whatever was found
         if not self.discovered_laws:
