@@ -31,7 +31,7 @@ class TestCliRoundTrip:
             "--variant", "v=fake",
             "--datasets", "S1", "S2",
             "--n-samples", "50",
-            "--seeds", "42", "43",
+            "--seeds", "73", "74",
             "--output", str(out),
         ])
         assert out.exists(), "run subcommand did not produce the expected CSV"
@@ -66,7 +66,7 @@ class TestCliRoundTrip:
             "--sweep", "fake.k=1,2,3",
             "--datasets", "S1",
             "--n-samples", "50",
-            "--seeds", "42", "43",
+            "--seeds", "73", "74",
             "--output", str(out),
         ])
         rows = _read_csv_rows(out)

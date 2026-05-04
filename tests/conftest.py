@@ -91,7 +91,7 @@ def _default_runner_args(**overrides) -> Namespace:
         seeds=None,
         output_root="results",
         output="experiment_results.csv",
-        verbose=False,
+        log_level="default",
         feynman_root="feynman",
     )
     base.update(overrides)

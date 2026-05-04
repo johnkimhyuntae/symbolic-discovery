@@ -19,16 +19,16 @@ WRAPPERS = pytest.mark.parametrize(
 @WRAPPERS
 def test_returns_solver_result(WrapperClass, simple_train_test):
     train, test = simple_train_test
-    solver = WrapperClass(verbose=False)
-    result = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass()
+    result = solver.solve(train, test, target_col="y", seed=73)
     assert isinstance(result, SolverResult)
 
 
 @WRAPPERS
 def test_finds_law_on_simple_data(WrapperClass, simple_train_test):
     train, test = simple_train_test
-    solver = WrapperClass(verbose=False)
-    result = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass()
+    result = solver.solve(train, test, target_col="y", seed=73)
     assert result.status == "Found"
     assert result.r2 > 0.99
 
@@ -37,8 +37,8 @@ def test_finds_law_on_simple_data(WrapperClass, simple_train_test):
 def test_missing_target_returns_error(WrapperClass):
     train = pd.DataFrame({"x": [1, 2, 3]})
     test = pd.DataFrame({"x": [4, 5]})
-    solver = WrapperClass(verbose=False)
-    result = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass()
+    result = solver.solve(train, test, target_col="y", seed=73)
     assert result.status == "Error"
     assert "y" in result.raw_equation
 
@@ -46,8 +46,8 @@ def test_missing_target_returns_error(WrapperClass):
 @WRAPPERS
 def test_kwargs_forwarded_to_underlying_model(WrapperClass, simple_train_test):
     train, test = simple_train_test
-    solver = WrapperClass(r2_threshold=0.999999, verbose=False)
-    result = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass(r2_threshold=0.999999)
+    result = solver.solve(train, test, target_col="y", seed=73)
     assert result.status == "Found"
 
 
@@ -55,8 +55,8 @@ def test_kwargs_forwarded_to_underlying_model(WrapperClass, simple_train_test):
 def test_no_law_found_is_failure_not_error(WrapperClass):
     train = pd.DataFrame({"y": [1.0, 2.0, 3.0, 4.0, 5.0]})
     test = pd.DataFrame({"y": [6.0, 7.0]})
-    solver = WrapperClass(verbose=False)
-    result = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass()
+    result = solver.solve(train, test, target_col="y", seed=73)
     assert result.status == "Failure"
     assert result.equation == "No law found"
 
@@ -64,8 +64,8 @@ def test_no_law_found_is_failure_not_error(WrapperClass):
 @WRAPPERS
 def test_result_fields_populated(WrapperClass, simple_train_test):
     train, test = simple_train_test
-    solver = WrapperClass(verbose=False)
-    r = solver.solve(train, test, target_col="y", seed=42)
+    solver = WrapperClass()
+    r = solver.solve(train, test, target_col="y", seed=73)
     assert isinstance(r.equation, str)
     assert isinstance(r.raw_equation, str)
     assert isinstance(r.r2, float)
