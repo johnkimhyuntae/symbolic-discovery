@@ -139,7 +139,6 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
         f"_N{run.noise}{run.noise_type[:1]}"
         f"_n{run.n_samples}_S{run.seed}"
     )
-    is_bacon = v.model.startswith("bacon")
     exclusion = get_exclusion_reason(config)
 
     # Exclusions
@@ -156,45 +155,27 @@ def _execute_one(run: Run, ds_key: str, args, writer) -> None:
                 print(f"Skipping {config.key} for {v.model} due to exclusion: {exclusion}")
             return
 
-    if is_bacon and exclusion:
-        result = SolverResult(
-            equation="No law found",
-            raw_equation=(
-                f"Excluded: equation contains {exclusion} operator BACON cannot discover"
-                if exclusion != "complex"
-                else "Excluded: equation is too complex for BACON"
-            ),
-            r2=float("nan"),
-            mse=float("nan"),
-            mae=float("nan"),
-            time_sec=0.0,
-            status="Failure",
-            logs=[]
-        )
-        bench_pretty_map = None
+    train_df, test_df, bench_pretty_map = load(
+        config,
+        noise=run.noise,
+        noise_type=run.noise_type,
+        n_samples=run.n_samples,
+        seed=run.seed,
+        feynman_root=args.feynman_root,
+    )
 
-    else:
-        train_df, test_df, bench_pretty_map = load(
-            config,
-            noise=run.noise,
-            noise_type=run.noise_type,
-            n_samples=run.n_samples,
-            seed=run.seed,
-            feynman_root=args.feynman_root,
-        )
+    SolverClass = SOLVER_REGISTRY[v.model]
 
-        SolverClass = SOLVER_REGISTRY[v.model]
+    solver = SolverClass(log_level=args.log_level, **v.params)
+    result = solver.solve(train_df, test_df, config.target, run.seed)
 
-        solver = SolverClass(log_level=args.log_level, **v.params)
-        result = solver.solve(train_df, test_df, config.target, run.seed)
-
-        if args.log_file:
-            try:
-                with open(args.log_file, "a") as fh:
-                    fh.write(f"\n=== {run_id} ===\n")
-                    fh.writelines(f"{log}\n" for log in result.logs)
-            except OSError:
-                pass
+    if args.log_file:
+        try:
+            with open(args.log_file, "a") as fh:
+                fh.write(f"\n=== {run_id} ===\n")
+                fh.writelines(f"{log}\n" for log in result.logs)
+        except OSError:
+            pass
 
     pretty_eq = pretty_equation(result.equation or "", bench_pretty_map)
     eq_preview = (pretty_eq or "").replace("\n", " ").strip()
@@ -247,19 +228,19 @@ def _print_progress(run_id, run, config, v, result, eq_preview) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run symbolic regression benchmarks.",
+        description="Run symbolic regression experiments.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-dataset selectors:
-    S1..S4          individual synthetic datasets
+Dataset selectors:
+    S1..S3          individual synthetic datasets
     T1..T5          individual textbook laws
     F1..F100        individual Feynman equations (by number)
     B1..B20         individual Bonus equations (by number)
     S / T / F / B   all datasets in that family
     [custom].csv    path to custom CSV file (requires --target)
 
-examples:
-    # Defaults — same as before
+Examples:
+    # Simple run with default settings
     %(prog)s --models bacon3f bacon7f --datasets S T
 
     # One-knob hyperparameter sweep
@@ -267,13 +248,12 @@ examples:
 
     # Named ablation variants
     %(prog)s --datasets S T --noise 0.0 0.05 \\
-        --variant full=bacon7f \\
+        --variant baseline=bacon7f \\
         --variant no_voting=bacon7f:n_folds=1 \\
-        --variant no_relax=bacon7f:scale_factor=1.0 \\
-        --variant baseline=bacon3f
+        --variant no_relax=bacon7f:scale_factor=1.0
 
     # Full preregistered study from a study file
-    %(prog)s --study experiments/noise_robustness.yaml --output noise.csv
+    %(prog)s --study noise_robustness.yaml --output noise.csv
 
     # Sample-efficiency curve
     %(prog)s --models bacon7f pysr --datasets T1 T2 \\
@@ -282,24 +262,21 @@ examples:
 
     # Solver / variant specification
     parser.add_argument(
-        "--models", nargs="+", default=None,
+        "--models", nargs="+", default=None, metavar="MODEL",
         choices=SOLVER_REGISTRY.keys(),
         help="Solvers to run with default kwargs. Sugar for '--variant X=X'.",
     )
     parser.add_argument(
-        "--variant", action="append", default=[], metavar="SPEC",
-        help="Named solver variant. Format: 'name=model[:k=v,k=v,...]'. "
-             "Repeatable. Example: --variant no_voting=bacon7f:n_folds=1",
+        "--variant", action="append", default=[],
+        help="Named solver variant. Format: 'name=solver[:k=v,k=v,...]'. Repeatable. Example: --variant no_voting=bacon7f:n_folds=1.",
     )
     parser.add_argument(
-        "--sweep", action="append", default=[], metavar="SPEC",
-        help="One-knob hyperparameter sweep. Format: 'model.param=v1,v2,...'. "
-             "Repeatable. Example: --sweep bacon7f.n_folds=1,3,5,7",
+        "--sweep", action="append", default=[],
+        help="One-knob hyperparameter sweep. Format: 'solver.param=v1,v2,...'. Repeatable. Example: --sweep bacon7f.n_folds=1,3,5,7.",
     )
     parser.add_argument(
         "--study", type=str, default=None, metavar="PATH",
-        help="YAML study file specifying variants, datasets, noise, "
-            "noise_types, n_samples, and seeds. CLI flags override study fields.",
+        help="YAML study file specifying variants, datasets, noise, noise_types, n_samples, and seeds. CLI flags override study fields.",
     )
 
     # Data axes
@@ -309,39 +286,40 @@ examples:
     )
     parser.add_argument(
         "--target", type=str, default=None,
-        help="Target column name (required for custom .csv files)",
+        help="Target column name (required for custom .csv files).",
     )
     parser.add_argument(
         "--noise", nargs="+", type=float, default=None,
-        help="Noise levels to inject. Default: 0.0",
+        help="Noise levels to inject. Default: 0.0.",
     )
     parser.add_argument(
-        "--noise-types", nargs="+", default=None,
+        "--noise-types", nargs="+", default=None, metavar="TYPE",
         choices=["additive", "multiplicative"],
-        help="Noise distributions to inject. Default: multiplicative",
+        help="Noise distributions to inject. Default: multiplicative.",
     )
     parser.add_argument(
-        "--n-samples", nargs="+", type=int, default=None,
-        help="Rows per dataset. Accepts multiple values to sweep. Default: 1000",
+        "--n-samples", nargs="+", type=int, default=None, metavar="N",
+
+        help="Rows per dataset. Default: 1000.",
     )
     parser.add_argument(
         "--seeds", nargs="+", type=int, default=None,
-        help="Random seeds. Default: 73",
+        help="Random seeds. Default: 73.",
     )
 
     # Output and misc
     parser.add_argument(
         "--log-level", type=str, default="default",
         choices=["default", "verbose", "quiet"],
-        help="Logging level. Options: default, verbose, quiet (default: default)",
+        help="Logging level. Verbose prints logs (and saves logs for BACON), quiet suppresses all log printing. Default: default.",
     )
     parser.add_argument(
         "--output-root", type=str, default="results",
-        help="Root directory for output CSV files (default: results)",
+        help="Root directory for output CSV files. Default: results.",
     )
     parser.add_argument(
         "--output", type=str, default="experiment_results.csv",
-        help="Output CSV path (default: experiment_results.csv)",
+        help="Output CSV path. Default: experiment_results.csv.",
     )
     parser.add_argument(
         "--exclude", action="store_true",
@@ -353,7 +331,7 @@ examples:
     )
     parser.add_argument(
         "--feynman-root", type=str, default="feynman",
-        help="Root directory for Feynman/Bonus data files",
+        help="Root directory for Feynman/Bonus data files. Default: feynman.",
     )
     return parser
 
