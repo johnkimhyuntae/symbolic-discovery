@@ -13,12 +13,7 @@ import yaml
 from symbolic_discovery.experiments.runner import (
     main as runner_main,
     run_experiment,
-    _execute_one,
 )
-from symbolic_discovery.solvers import SOLVER_REGISTRY
-
-
-pytestmark = pytest.mark.integration
 
 
 # Shared helpers
@@ -51,20 +46,18 @@ class TestSingleRun:
     def test_run_id_includes_noise_type_initial(
         self, fake_solver, default_runner_args, tmp_path,
     ):
-        # The deterministic run_id encodes axes for grep-friendliness;
-        # noise_type is encoded as its first letter.
         out = tmp_path / "results.csv"
         args = default_runner_args(
             variant=["v=fake"],
             datasets=["S1"],
             noise=[0.1],
-            noise_types=["gaussian"],
+            noise_types=["additive"],
             n_samples=[50],
             output=str(out),
         )
         run_experiment(args)
         rows = _read_rows(out)
-        assert "0.1g" in rows[0]["run_id"]
+        assert "0.1a" in rows[0]["run_id"]
 
 
 # CSV append behaviour
@@ -135,7 +128,6 @@ class TestFullGrid:
         )
         run_experiment(args)
         rows = _read_rows(out)
-        # 2 variants × 2 datasets × 2 noise × 1 noise_type × 1 n_samples × 2 seeds = 16
         assert len(rows) == 16
 
 
@@ -173,9 +165,7 @@ class TestStudyFile:
 class TestMainEntryPoint:
 
     def test_main_argv_to_csv(self, fake_solver, tmp_path):
-        # Exercises the full main() entry point: argparse construction,
-        # validation, build_runs, execute, write — all from a list of
-        # CLI tokens.
+        # Exercises the full main() entry point
         out = tmp_path / "results.csv"
         runner_main([
             "--variant", "v=fake",

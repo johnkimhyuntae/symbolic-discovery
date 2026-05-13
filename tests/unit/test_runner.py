@@ -186,7 +186,7 @@ class TestBuildRuns:
             models=[KNOWN_MODEL],
             datasets=["S1", "S2"],
             noise=[0.0, 0.1],
-            noise_types=["gaussian", "multiplicative"],
+            noise_types=["additive", "multiplicative"],
             n_samples=[100, 200],
             seeds=[1, 2, 3],
         )
@@ -251,7 +251,7 @@ class TestWriteRow:
         v = Variant(name="v1", model=KNOWN_MODEL, params={"a": 1, "b": 2.5})
         run = Run(
             variant=v, dataset="S1", noise=0.05,
-            noise_type="gaussian", n_samples=500, seed=73,
+            noise_type="additive", n_samples=500, seed=73,
         )
         config = SimpleNamespace(key="S1", target="y")
         result = SolverResult(
@@ -273,7 +273,7 @@ class TestWriteRow:
         assert row["method"] == KNOWN_MODEL
         assert row["variant"] == "v1"
         assert row["noise"] == "0.05"
-        assert row["noise_type"] == "gaussian"
+        assert row["noise_type"] == "additive"
         assert row["n_samples"] == "500"
         assert row["seed"] == "73"
         assert row["status"] == "Found"

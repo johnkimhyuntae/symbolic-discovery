@@ -1,40 +1,38 @@
-"""Tests for symbolic_discovery.analysis."""
+"""Tests for symbolic_discovery.utils.analysis."""
 
 from __future__ import annotations
 
-import json
 import math
 
-import numpy as np
 import pandas as pd
 import pytest
 
-from symbolic_discovery.analysis import (
-    aggregate_seeds,
-    expand_params,
-    noise_curve,
-    pivot_compare,
-    success_rate,
-    successful,
-    summarise_by_variant,
+from symbolic_discovery.utils.analysis import (
+    aggregate,
+    equivalence_ratio,
+    load_csvs,
+    parse_variants,
 )
 
 
 def _runner_row(**overrides) -> dict:
     row = {
-        "variant": "a",
-        "method": "bacon3f",
-        "dataset": "S1",
-        "noise": 0.0,
-        "noise_type": "multiplicative",
-        "n_samples": 100,
-        "seed": 1,
-        "r2": 0.99,
-        "mse": 0.01,
-        "mae": 0.005,
-        "time_s": 0.1,
-        "status": "Found",
-        "params_json": '{"k": 1}',
+        "run_id":       "r1",
+        "variant":      "a",
+        "method":       "bacon3f",
+        "dataset":      "T1",
+        "noise":        0.0,
+        "noise_type":   "multiplicative",
+        "n_samples":    100,
+        "seed":         1,
+        "equation":     "V = I*R",
+        "raw_equation": "V = x1*x2",
+        "r2":           0.99,
+        "mse":          0.01,
+        "mae":          0.005,
+        "time_s":       0.1,
+        "status":       "Found",
+        "params_json":  '{"k": 1}',
     }
     row.update(overrides)
     return row
@@ -44,171 +42,183 @@ def _runner_row(**overrides) -> dict:
 def runner_df() -> pd.DataFrame:
     rows = [
         _runner_row(),
-        _runner_row(seed=2, r2=0.97, mse=0.02, mae=0.010, time_s=0.2),
-        _runner_row(dataset="S2", r2=0.95, mse=0.05, mae=0.02, time_s=0.3),
+        _runner_row(seed=2, r2=0.97, time_s=0.2),
+        _runner_row(dataset="T2", r2=0.95, time_s=0.3),
         _runner_row(
-            dataset="S2",
-            seed=2,
-            r2=0.0,
-            mse=float("inf"),
-            mae=float("inf"),
-            time_s=0.0,
-            status="Failure",
+            dataset="T2", seed=2,
+            r2=0.0, mse=float("inf"), mae=float("inf"),
+            time_s=0.0, status="Failure",
         ),
-        _runner_row(
-            variant="b",
-            method="bacon7f",
-            seed=1,
-            r2=0.80,
-            mse=0.10,
-            mae=0.05,
-            time_s=1.0,
-            params_json='{"k": 5}',
-        ),
-        _runner_row(
-            variant="b",
-            method="bacon7f",
-            seed=2,
-            r2=0.85,
-            mse=0.08,
-            mae=0.04,
-            time_s=1.2,
-            params_json='{"k": 5}',
-        ),
+        _runner_row(variant="b", method="bacon7f", r2=0.80, time_s=1.0,
+                    params_json='{"k": 5}'),
+        _runner_row(variant="b", method="bacon7f", seed=2, r2=0.85,
+                    time_s=1.2, params_json='{"k": 5}'),
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["found"] = df["status"] == "Found"
+    return df
 
 
-# successful
+# load_csvs
 
-class TestSuccessful:
-    def test_keeps_only_found(self, runner_df):
-        out = successful(runner_df)
-        assert (out["status"] == "Found").all()
-        assert len(out) == 5  # one Failure dropped
+class TestLoadCsvs:
+    def test_returns_none_when_no_paths_exist(self, tmp_path):
+        assert load_csvs([tmp_path / "missing.csv"]) is None
 
-    def test_returns_a_copy(self, runner_df):
-        # Modifying the output should not bleed into the caller's frame.
-        out = successful(runner_df)
-        out.loc[out.index[0], "r2"] = -999
-        assert runner_df.loc[runner_df.index[0], "r2"] != -999
+    def test_loads_single_csv(self, tmp_path, runner_df):
+        path = tmp_path / "results.csv"
+        runner_df.drop(columns="found").to_csv(path, index=False)
+        out = load_csvs([path])
+        assert out is not None
+        assert len(out) == len(runner_df)
+
+    def test_concatenates_multiple_csvs(self, tmp_path, runner_df):
+        clean = runner_df.drop(columns="found")
+        p1 = tmp_path / "a.csv"
+        p2 = tmp_path / "b.csv"
+        clean.iloc[:3].to_csv(p1, index=False)
+        clean.iloc[3:].to_csv(p2, index=False)
+        out = load_csvs([p1, p2])
+        assert len(out) == len(runner_df) # type: ignore
+
+    def test_dedupes_on_experiment_key(self, tmp_path, runner_df):
+        clean = runner_df.drop(columns="found")
+        p1 = tmp_path / "a.csv"
+        p2 = tmp_path / "b.csv"
+        clean.to_csv(p1, index=False)
+        clean.to_csv(p2, index=False)
+        out = load_csvs([p1, p2])
+        assert len(out) == len(runner_df) # type: ignore
+
+    def test_found_column_added(self, tmp_path, runner_df):
+        path = tmp_path / "results.csv"
+        runner_df.drop(columns="found").to_csv(path, index=False)
+        out = load_csvs([path])
+        assert out["found"].dtype == bool # type: ignore
+        assert (~out["found"]).sum() == 1 # type: ignore
 
 
-# expand_params
+# aggregate
 
-class TestExpandParams:
-    def test_promotes_param_to_column(self, runner_df):
-        out = expand_params(runner_df, ["k"])
-        assert "k" in out.columns
-        assert out["k"].iloc[0] == 1
-        assert out["k"].iloc[-1] == 5
-
-    def test_unknown_param_yields_none(self, runner_df):
-        # Asking for a param that no row has should produce a column of None,
-        # not raise. This protects analysis code that asks for the union of
-        # params across multiple sweeps.
-        out = expand_params(runner_df, ["nonexistent"])
-        assert "nonexistent" in out.columns
-        assert out["nonexistent"].isna().all()
-
-    def test_handles_empty_params_json(self):
-        df = pd.DataFrame({"params_json": ["", "{}", '{"k": 1}']})
-        out = expand_params(df, ["k"])
-        assert math.isnan(out["k"].iloc[0]) or out["k"].iloc[0] is None
-        assert out["k"].iloc[2] == 1
-
-
-# aggregate_seeds
-
-class TestAggregateSeeds:
+class TestAggregate:
     def test_collapses_seed_dimension(self, runner_df):
-        out = aggregate_seeds(runner_df, group_by=["variant", "dataset"])
-        # 3 distinct (variant, dataset) cells: (a,S1), (a,S2), (b,S1).
+        out = aggregate(runner_df, ["variant", "dataset"])
         assert len(out) == 3
 
-    def test_outputs_mean_and_std_columns(self, runner_df):
-        out = aggregate_seeds(runner_df, group_by=["variant", "dataset"])
-        assert "r2_mean" in out.columns
-        assert "r2_std" in out.columns
-        assert "n_runs" in out.columns
+    def test_n_runs_counts_all_runs_including_failures(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        a_t2 = out[(out["variant"] == "a") & (out["dataset"] == "T2")].iloc[0]
+        assert a_t2["n_runs"] == 2
 
-    def test_n_runs_counts_per_cell(self, runner_df):
-        out = aggregate_seeds(runner_df, group_by=["variant", "dataset"])
-        # Each (variant, dataset) cell has 2 seeds in our fixture.
-        assert (out["n_runs"] == 2).all()
+    def test_success_rate_correct(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        a_t2 = out[(out["variant"] == "a") & (out["dataset"] == "T2")].iloc[0]
+        assert a_t2["success_rate"] == pytest.approx(0.5)
 
-    def test_ignores_missing_group_keys(self, runner_df):
-        # Asking to group by a column that isn't there should silently
-        # drop it rather than KeyError.
-        out = aggregate_seeds(runner_df, group_by=["variant", "no_such_col"])
-        assert "no_such_col" not in out.columns
+    def test_r2_mean_uses_successful_runs_only(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        a_t2 = out[(out["variant"] == "a") & (out["dataset"] == "T2")].iloc[0]
+        assert a_t2["r2_mean"] == pytest.approx(0.95)
 
+    def test_time_mean_includes_all_runs(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        a_t2 = out[(out["variant"] == "a") & (out["dataset"] == "T2")].iloc[0]
+        assert a_t2["time_mean"] == pytest.approx(0.15) # (0.3 + 0.0) / 2
 
-# success_rate
+    def test_time_mean_found_excludes_failures(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        a_t2 = out[(out["variant"] == "a") & (out["dataset"] == "T2")].iloc[0]
+        assert a_t2["time_mean_found"] == pytest.approx(0.3)
 
-class TestSuccessRate:
-    def test_per_dataset(self, runner_df):
-        out = success_rate(runner_df, by=["variant", "dataset"])
-        # (a, S2) had 1 of 2 Found.
-        a_s2 = out[(out["variant"] == "a") & (out["dataset"] == "S2")].iloc[0]
-        assert a_s2["success_rate"] == pytest.approx(0.5)
-        assert a_s2["n_runs"] == 2
+    def test_all_documented_columns_present(self, runner_df):
+        out = aggregate(runner_df, ["variant", "dataset"])
+        expected = {
+            "n_runs", "success_rate",
+            "r2_mean", "r2_std", "r2_sem",
+            "time_mean", "time_std", "time_sem",
+            "time_mean_found", "time_std_found", "time_sem_found",
+        }
+        assert expected.issubset(out.columns)
 
-    def test_all_found_gives_one(self, runner_df):
-        out = success_rate(runner_df, by=["variant", "dataset"])
-        b_s1 = out[(out["variant"] == "b") & (out["dataset"] == "S1")].iloc[0]
-        assert b_s1["success_rate"] == 1.0
-
-
-# summarise_by_variant
-
-class TestSummariseByVariant:
-    def test_one_row_per_variant(self, runner_df):
-        out = summarise_by_variant(runner_df)
-        assert set(out["variant"]) == {"a", "b"}
-        assert len(out) == 2
-
-    def test_sorted_by_r2_desc(self, runner_df):
-        out = summarise_by_variant(runner_df)
-        # The function uses every row for the mean (failures contribute
-        # r²=0), so we don't hand-compute the order — we just assert it
-        # really is descending.
-        means = out["r2_mean"].tolist()
-        assert means == sorted(means, reverse=True)
-        assert set(out["variant"]) == {"a", "b"}
-
-    def test_columns_present(self, runner_df):
-        out = summarise_by_variant(runner_df)
-        for col in ("n_runs", "success_rate", "r2_mean", "r2_std",
-                    "time_s_mean", "time_s_total"):
-            assert col in out.columns
+    def test_single_seed_cell_yields_nan_std_and_sem(self, runner_df):
+        out = aggregate(runner_df.head(1), ["variant", "dataset"])
+        assert math.isnan(out["r2_std"].iloc[0])
+        assert math.isnan(out["r2_sem"].iloc[0])
 
 
-# pivot_compare
+# parse_variants
 
-class TestPivotCompare:
-    def test_default_pivot(self, runner_df):
-        out = pivot_compare(runner_df, metric="r2")
-        # rows = dataset, cols = variant.
-        assert "S1" in out.index
-        assert "a" in out.columns
+class TestParseVariants:
+    def test_splits_variant_string_into_param_columns(self):
+        df = pd.DataFrame({"variant": ["b3f_md_4", "b3f_md_6", "b3f_baseline"]})
+        out = parse_variants(
+            df,
+            regex=r"^b3f_(md)_([\d.]+)$",
+            param_map={"md": ("max_depth", int)},
+            baseline_variant="b3f_baseline",
+            baseline_params={"max_depth": 6},
+        )
+        # 2 swept rows + 1 baseline echo for max_depth.
+        md_rows = out[out["param"] == "max_depth"]
+        assert len(md_rows) == 3
+        assert sorted(md_rows["param_value"]) == [4, 6, 6]
 
-    def test_handles_missing_cell(self, runner_df):
-        # Only variant 'a' was run on S2; the (b, S2) cell should be NaN.
-        out = pivot_compare(runner_df, metric="r2")
-        assert pd.isna(out.loc["S2", "b"])
+    def test_echoes_baseline_once_per_param(self):
+        df = pd.DataFrame({"variant": ["b3f_md_4", "b3f_ct_0.2", "b3f_baseline"]})
+        out = parse_variants(
+            df,
+            regex=r"^b3f_(md|ct)_([\d.]+)$",
+            param_map={
+                "md": ("max_depth", int),
+                "ct": ("constancy_threshold", float),
+            },
+            baseline_variant="b3f_baseline",
+            baseline_params={"max_depth": 6, "constancy_threshold": 0.1},
+        )
+        assert (out["param"] == "max_depth").sum() == 2
+        assert (out["param"] == "constancy_threshold").sum() == 2
+
+    def test_type_casting_applied_to_param_value(self):
+        df = pd.DataFrame({"variant": ["b3f_md_4"]})
+        out = parse_variants(
+            df,
+            regex=r"^b3f_(md)_([\d.]+)$",
+            param_map={"md": ("max_depth", int)},
+            baseline_variant="b3f_baseline",
+            baseline_params={"max_depth": 6},
+        )
+        v = out[out["param"] == "max_depth"].iloc[0]["param_value"]
+        assert v == 4
+        assert pd.api.types.is_integer(v)
 
 
-# noise_curve
+# equivalence_ratio
 
-class TestNoiseCurve:
-    def test_returns_long_format_frame(self, runner_df):
-        out = noise_curve(runner_df, metric="r2", group_by=["variant", "noise"])
-        assert "r2_mean" in out.columns
-        assert "r2_std" in out.columns
-        assert "n" in out.columns
+class TestEquivalenceRatio:
 
-    def test_one_row_per_group(self, runner_df):
-        # Only one noise level (0.0) and two variants -> two rows.
-        out = noise_curve(runner_df)
-        assert len(out) == 2
+    def test_exact_match_returns_one(self):
+        assert equivalence_ratio("V = I*R", "T1") == pytest.approx(1.0)
+
+    def test_scaled_match_returns_constant(self):
+        assert equivalence_ratio("V = 2*I*R", "T1") == pytest.approx(2.0)
+
+    def test_wrong_form_returns_zero(self):
+        assert equivalence_ratio("V = I + R", "T1") == 0.0
+
+    def test_lhs_stripped_when_present(self):
+        with_lhs    = equivalence_ratio("V = I*R", "T1")
+        without_lhs = equivalence_ratio("I*R",     "T1")
+        assert with_lhs == without_lhs == pytest.approx(1.0)
+
+    def test_constant_folding(self):
+        assert equivalence_ratio("s = 4.905*t**2", "T3") == pytest.approx(1.0)
+
+    def test_wrong_power_returns_zero(self):
+        assert equivalence_ratio("s = 4.905*t**3", "T3") == 0.0
+
+    def test_extra_additive_term_returns_zero(self):
+        assert equivalence_ratio("V = I*R + 0.001", "T1") == 0.0
+
+    def test_multivariable_with_floating_point_constant(self):
+        result = equivalence_ratio("T = 0.12028*P*V/n", "T4")
+        assert result == pytest.approx(1.0, rel=1e-3)

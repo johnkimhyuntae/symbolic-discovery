@@ -11,52 +11,6 @@ from symbolic_discovery.utils import calculate_mse, calculate_r2, calculate_mae
 from .base import BaseSolver, SolverResult
 
 
-# SymPy reserved names that PySR will misinterpret as built-in constants.
-_SYMPY_RESERVED = {"I", "E", "pi"}
-
-
-def _sanitise_columns(X: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Rename columns that collide with SymPy built-ins.
-
-    Returns ``(X_renamed, rename_map)`` where *rename_map* is only
-    populated for columns that were actually changed.
-    """
-    rename_map: dict[str, str] = {}
-    used: set[str] = set()
-
-    for idx, col in enumerate(X.columns):
-        safe = (
-            col not in _SYMPY_RESERVED
-            and re.match(r"^[A-Za-z_]\w*$", col) is not None
-            and col not in used
-        )
-        if safe:
-            used.add(col)
-            continue
-
-        candidate = f"x{idx + 1}"
-        j = 1
-        while candidate in used or candidate in _SYMPY_RESERVED:
-            j += 1
-            candidate = f"x{idx + 1}_{j}"
-        rename_map[col] = candidate
-        used.add(candidate)
-
-    if rename_map:
-        X = X.rename(columns=rename_map)
-    return X, rename_map
-
-
-def _unsanitise_equation(eq: str, rename_map: dict[str, str]) -> str:
-    """Replace sanitised variable names back to originals in *eq*."""
-    if not rename_map:
-        return eq
-    inv = {v: k for k, v in rename_map.items()}
-    for k in sorted(inv, key=len, reverse=True):
-        eq = re.sub(rf"\b{re.escape(k)}\b", inv[k], eq)
-    return eq
-
-
 def _extract_equation(model: Any) -> str:
     """Pull the best symbolic equation string from a fitted PySRRegressor."""
     if hasattr(model, "get_best"):
@@ -119,7 +73,6 @@ class PySRSolver(BaseSolver):
 
         X = train_df.drop(columns=[target_col])
         y = train_df[target_col].to_numpy(copy=True)
-        X, rename_map = _sanitise_columns(X)
 
         set_params: dict[str, Any] = {
             "binary_operators": ["+", "-", "*", "/"], # standardise operator set with BACON
@@ -156,7 +109,6 @@ class PySRSolver(BaseSolver):
         try:
             y_test = test_df[target_col].to_numpy(copy=True)
             x_test = test_df.drop(columns=[target_col])
-            x_test, _ = _sanitise_columns(x_test)
             y_pred = model.predict(x_test)
             r2 = calculate_r2(y_test, y_pred)
             mse = calculate_mse(y_test, y_pred)
@@ -204,7 +156,6 @@ class PySRSolver(BaseSolver):
                 logs=[],
             )
 
-        raw_eq = _unsanitise_equation(raw_eq, rename_map)
         equation = f"{target_col} = {raw_eq}" if "=" not in raw_eq else raw_eq
 
         return SolverResult(

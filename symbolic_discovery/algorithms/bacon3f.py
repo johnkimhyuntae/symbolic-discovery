@@ -105,11 +105,8 @@ class BACON3F:
             return
 
         self.logs.append(message)
-
-        if message:
-            print(f"[BACON.3F] {message}")
-        else:
-            print("")
+        print(f"[BACON.3F] {message}")
+        return
 
     
     def _check(self, dependent: Term, independent: Term) -> Tuple[Term | None, str]:

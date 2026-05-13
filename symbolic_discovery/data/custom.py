@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 
-def load_csv(path: str, n_samples: int | None = None, seed: int = 73) -> pd.DataFrame:
+def load_csv(path: str, n_samples: int, seed: int = 73) -> pd.DataFrame:
     """Read a CSV file, optionally truncated to *n_samples* rows."""
     p = Path(path)
     if not p.exists():

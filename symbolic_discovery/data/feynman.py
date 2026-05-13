@@ -1,9 +1,7 @@
 """
 Feynman & Bonus benchmark I/O.
 
-Handles all interaction with the ``feynman_root`` directory tree:
-metadata CSVs, whitespace-delimited data files, and the exclusion list.
-
+Handles all interaction with the ``feynman_root`` directory tree.
 """
 
 from __future__ import annotations
@@ -128,7 +126,8 @@ def load_data(
     seed: int,
     target: str,
 ) -> pd.DataFrame:
-    """Read *n_samples* rows from a whitespace-delimited data file.
+    """
+    Read *n_samples* rows from a whitespace-delimited data file.
 
     Returns a DataFrame with columns ``x1, x2, ..., y``, shuffled.
     """
