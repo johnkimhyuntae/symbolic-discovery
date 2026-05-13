@@ -9,15 +9,11 @@ import pandas as pd
 import pytest
 
 from symbolic_discovery.data import (
-    CATALOGUE,
-    DatasetConfig,
     expand_datasets,
     load,
     resolve,
 )
-
-
-pytestmark = pytest.mark.integration
+from symbolic_discovery.data.synthetic import CATALOGUE
 
 
 FEYNMAN_ROOT = "feynman"
@@ -33,14 +29,14 @@ _no_feynman = pytest.mark.skipif(
 class TestLoadSyntheticAndTextbook:
     """Checks for the synthetic and textbook load pipeline."""
 
-    @pytest.mark.parametrize("key", ["S1", "S2", "S3", "S4", "T1", "T2", "T3", "T4", "T5"])
+    @pytest.mark.parametrize("key", ["S1", "S2", "S3", "T1", "T2", "T3", "T4", "T5"])
     def test_load_returns_train_test_and_none_pretty_map(self, key):
         cfg = CATALOGUE[key]
         train_df, test_df, pretty_map = load(cfg, n_samples=100, seed=73)
 
         assert isinstance(train_df, pd.DataFrame)
         assert isinstance(test_df, pd.DataFrame)
-        assert pretty_map is None
+        assert pretty_map is not None
 
     def test_target_column_present_in_both_splits(self):
         cfg = CATALOGUE["S1"]
@@ -115,7 +111,7 @@ class TestExpandThenLoad:
 
     def test_S_family_wildcard_expands_and_each_loads(self):
         keys = expand_datasets(["S"])
-        assert keys == ["S1", "S2", "S3", "S4"]
+        assert keys == ["S1", "S2", "S3"]
         for k in keys:
             cfg = resolve(k)
             train_df, test_df, _ = load(cfg, n_samples=50, seed=73)
@@ -169,7 +165,7 @@ class TestCustomCsv:
         cfg = resolve(str(csv_path), target="y")
         train_df, test_df, pretty_map = load(cfg, n_samples=20, seed=73)
 
-        assert pretty_map is None  # documented for family C
+        assert pretty_map is not None
         assert "y" in train_df.columns
         assert len(train_df) + len(test_df) == 20
 
@@ -192,7 +188,6 @@ class TestCustomCsv:
 
 # Feynman / Bonus
 
-@pytest.mark.feynman
 @_no_feynman
 class TestFeynmanLoadPipeline:
     """Checks against on-disk Feynman and Bonus data."""
@@ -251,7 +246,6 @@ class TestFeynmanLoadPipeline:
         pd.testing.assert_frame_equal(a_test, b_test)
 
 
-@pytest.mark.feynman
 @_no_feynman
 class TestFeynmanDirectoryStructure:
     """Sanity checks that the on-disk layout matches what loaders expect."""

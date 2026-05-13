@@ -10,9 +10,6 @@ import pytest
 from symbolic_discovery.cli.main import main as cli_main
 
 
-pytestmark = pytest.mark.e2e
-
-
 def _read_csv_rows(path: Path) -> list[dict]:
     with open(path, newline="") as f:
         return list(csv.DictReader(f))
@@ -77,7 +74,7 @@ class TestCliRoundTrip:
 
         capsys.readouterr()
 
-        cli_main(["view", str(out), "--mode", "stats"])
+        cli_main(["view", str(out), "--stats"])
         stats_path = out.with_name("sweep_stats.csv")
         assert stats_path.exists(), "stats mode did not produce the expected CSV"
 
@@ -85,7 +82,7 @@ class TestCliRoundTrip:
 # Failure modes
 
 class TestCliFailureModes:
-    """CLI misuse should fail loudly but predictably."""
+    """CLI misuse should fail explicitly but predictably."""
 
     def test_no_args_prints_help_and_returns(self, capsys):
         cli_main([])

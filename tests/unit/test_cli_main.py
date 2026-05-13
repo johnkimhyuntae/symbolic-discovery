@@ -28,7 +28,7 @@ class TestBuildArgParser:
     def test_unknown_subcommand_rejected(self):
         parser = build_arg_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["bogus"])
+            parser.parse_args(["churchill"])
 
     def test_subcommand_is_required(self):
         parser = build_arg_parser()
@@ -93,8 +93,8 @@ class TestMainViewDispatch:
     def test_forwards_argv_with_subcommand_stripped(self, monkeypatch):
         viewer_main = Mock()
         monkeypatch.setattr(viewer, "main", viewer_main)
-        main(["view", "results.csv", "--mode", "stats"])
-        viewer_main.assert_called_once_with(["results.csv", "--mode", "stats"])
+        main(["view", "results.csv", "--stats"])
+        viewer_main.assert_called_once_with(["results.csv", "--stats"])
 
     def test_strips_subcommand_even_with_no_further_args(self, monkeypatch):
         viewer_main = Mock()
@@ -129,7 +129,7 @@ class TestMainUnknownCommand:
         runner_main.assert_not_called()
         viewer_main.assert_not_called()
 
-    @pytest.mark.parametrize("command", ["bogus", "ru", "View", "RUN"])
+    @pytest.mark.parametrize("command", ["cambridge", "hi", "View", "RUN"])
     def test_typos_and_case_variants_all_rejected(self, command, monkeypatch):
         monkeypatch.setattr(runner, "main", lambda *_a, **_k: None)
         monkeypatch.setattr(viewer, "main", lambda *_a, **_k: None)

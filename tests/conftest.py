@@ -11,27 +11,6 @@ import pytest
 from symbolic_discovery.solvers import SOLVER_REGISTRY, SolverResult
 
 
-# Marker registration
-
-# Keep marker registration here instead of a separate pytest config file.
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "slow: long-running tests (real BACON / PySR runs)",
-    )
-    config.addinivalue_line(
-        "markers", "integration: composes multiple modules (real solvers, real I/O)",
-    )
-    config.addinivalue_line(
-        "markers", "e2e: full CLI round-trips",
-    )
-    config.addinivalue_line(
-        "markers", "feynman: requires the feynman/ data directory on disk",
-    )
-    config.addinivalue_line(
-        "markers", "pysr: requires pysr to be installed",
-    )
-
-
 # Fake solver
 
 class FakeSolver:

@@ -14,7 +14,7 @@ from symbolic_discovery.data.synthetic import generate
 # CATALOGUE
 
 class TestCatalogue:
-    @pytest.mark.parametrize("key", ["S1", "S2", "S3", "S4", "T1", "T2", "T3", "T4", "T5"])
+    @pytest.mark.parametrize("key", ["S1", "S2", "S3", "T1", "T2", "T3", "T4", "T5"])
     def test_built_in_keys_present(self, key):
         assert key in CATALOGUE
         assert CATALOGUE[key].key == key
@@ -53,7 +53,7 @@ class TestExpandDatasets:
 
     def test_synthetic_family_expands_to_all_S(self):
         out = expand_datasets(["S"])
-        for key in ["S1", "S2", "S3", "S4"]:
+        for key in ["S1", "S2", "S3"]:
             assert key in out
 
     def test_textbook_family_expands_to_all_T(self):
@@ -189,8 +189,8 @@ class TestInjectNoise:
 
     def test_additive_scales_with_range(self):
         df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [0.0, 10.0, 20.0, 30.0]})
-        a = inject_noise(df, "y", 0.1, noise_type="gaussian", seed=73)
-        b = inject_noise(df, "y", 0.5, noise_type="gaussian", seed=73)
+        a = inject_noise(df, "y", 0.1, noise_type="additive", seed=73)
+        b = inject_noise(df, "y", 0.5, noise_type="additive", seed=73)
         dev_a = float(np.mean(np.abs(a["y"] - df["y"])))
         dev_b = float(np.mean(np.abs(b["y"] - df["y"])))
         assert dev_b > dev_a * 2  # generous bound

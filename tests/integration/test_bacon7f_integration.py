@@ -12,20 +12,17 @@ from symbolic_discovery.data import CATALOGUE, load
 from symbolic_discovery.utils import equation_to_metrics
 
 
-pytestmark = pytest.mark.integration
-
-
 # Clean data
 
 @pytest.mark.parametrize("dataset_id, expected_expr", [
     ("S1", "x1 + x2"),
     ("S2", "x1*x2"),
     ("S3", "x1/(x2 + 1)"),
-    ("T1", "I*R"),
-    ("T2", "k*x"),
-    ("T3", "0.5*9.81*t**2"),
-    ("T4", "P*V/(n*8.314)"),
-    ("T5", "5.67e-8*T**4"),
+    ("T1", "x1*x2"),
+    ("T2", "x1*x2"),
+    ("T3", "0.5*9.81*x1**2"),
+    ("T4", "x1*x2/(x3*8.314)"),
+    ("T5", "5.67e-8*x1**4"),
 ])
 def test_recovers_law_on_clean_data(dataset_id, expected_expr):
     """BACON.7F should recover clean catalogue laws."""
@@ -49,24 +46,6 @@ def test_recovers_law_on_clean_data(dataset_id, expected_expr):
     ratio = sympy.simplify(discovered / expected)
     assert ratio.is_number is True
     assert abs(1 - float(ratio)) < 0.01
-
-
-# Known failures
-
-@pytest.mark.parametrize("dataset_id", ["S4"])
-def test_expected_failures_clean(dataset_id):
-    """Known BACON.7F limitations should fail cleanly."""
-    config = CATALOGUE[dataset_id]
-    train_df, test_df, _ = load(config, noise=0.0)
-    solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
-                     initial_epsilon=0.01, initial_delta=0.01, 
-                     log_level="quiet")
-    equation, _ = solver.discover(train_df, target_col=config.target)
-
-    is_failure = equation == "No law found"
-    r2, _, _ = equation_to_metrics(equation, test_df, config.target)
-    is_poor_fit = r2 < 0.5
-    assert is_failure or is_poor_fit
 
 
 # n_folds

@@ -290,13 +290,13 @@ class TestExpandToRuns:
     def test_fields_propagate_correctly(self):
         runs = expand_to_runs(
             variants=[self._v("v1")], datasets=["S1"], noise=[0.05],
-            noise_types=["gaussian"], n_samples=[250], seeds=[123],
+            noise_types=["additive"], n_samples=[250], seeds=[123],
         )
         r = runs[0]
         assert r.variant.name == "v1"
         assert r.dataset == "S1"
         assert r.noise == 0.05
-        assert r.noise_type == "gaussian"
+        assert r.noise_type == "additive"
         assert r.n_samples == 250
         assert r.seed == 123
 
