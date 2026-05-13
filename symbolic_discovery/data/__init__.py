@@ -12,7 +12,8 @@ from .api import (
     pretty_equation,
     resolve,
 )
-from .catalogue import CATALOGUE, DatasetConfig
+from .config import DatasetConfig
+from .synthetic import CATALOGUE
 
 __all__ = [
     "CATALOGUE",

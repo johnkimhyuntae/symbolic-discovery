@@ -3,13 +3,6 @@ Unified dataset interface.
 
 This is the module that :mod:`symbolic_discovery.experiments.runner`
 (or any other consumer) should import from ``symbolic_discovery.data``.
-It provides five functions that cover the full lifecycle:
-
-    expand_datasets   resolve CLI args (``F``, ``S1``, ...) into keys
-    resolve           turn a single key into a :class:`DatasetConfig`
-    load              produce a ``(DataFrame, pretty_map | None)``
-    get_exclusion_reason    check BACON-incompatible equations
-    pretty_equation   substitute ``x1`` to ``θ`` in equation strings
 """
 
 from __future__ import annotations
@@ -21,10 +14,10 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 
-from .catalogue import CATALOGUE, DatasetConfig
+from .config import DatasetConfig
 from . import feynman as _feyn
 from . import custom as _custom
-from .synthetic import generate
+from . import synthetic as _synthetic
 
 
 _KEY_RE = re.compile(r"^([STFB])(\d+)$")
@@ -68,7 +61,7 @@ def expand_datasets(
     """
     Expand bare-family wildcards; pass numbered keys through.
 
-    ``["S", "F8", "T"]``  to  ``["S1", "S2", "S3", "S4", "F8", "T1", ..., "T5"]``
+    ``["S", "F8", "T"]``  to  ``["S1", "S2", "S3", "F8", "T1", ..., "T5"]``
     """
     out: list[str] = []
     for token in raw:
@@ -83,7 +76,7 @@ def expand_datasets(
 def _expand_family(family: str, feynman_root: str) -> list[str]:
     if family in ("S", "T"):
         return sorted(
-            (k for k in CATALOGUE if k.startswith(family)),
+            (k for k in _synthetic.CATALOGUE if k.startswith(family)),
             key=lambda k: int(k[1:]),
         )
     # F or B — derive keys from metadata + available data files
@@ -101,7 +94,7 @@ def resolve(
     """
     Resolve any dataset key to a :class:`DatasetConfig`.
 
-    Supports ``S1``-``S4``, ``T1``-``T5``, ``F1``-``F100``, ``B1``-``B20``,
+    Supports ``S1``-``S3``, ``T1``-``T5``, ``F1``-``F100``, ``B1``-``B20``,
     and paths to custom ``.csv`` files (requires *target*).
     """
     key = key.strip()
@@ -123,8 +116,8 @@ def resolve(
         )
 
     # S / T — direct catalogue lookup
-    if key in CATALOGUE:
-        return CATALOGUE[key]
+    if key in _synthetic.CATALOGUE:
+        return _synthetic.CATALOGUE[key]
 
     # F / B — resolve via Feynman metadata
     m = _KEY_RE.match(key)
@@ -160,34 +153,34 @@ def load(
     seed: int = 73,
     n_samples: int = 1000,
     feynman_root: str = "feynman",
-) -> tuple[pd.DataFrame, pd.DataFrame, Optional[dict[str, str]]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
     """
     Load data for any dataset.
 
     Returns ``(train_df, test_df, pretty_map)`` where 
-    data split is 0.8 and *pretty_map* is ``None`` for S/T/C.
+    data split is 0.8, and pretty_map is a dictionary mapping safe 
+    column names to raw dataset symbols.
     """
     # S / T — synthetic generation
     if config.family in ("S", "T"):
-        df = generate(config, n_samples=n_samples, seed=seed)
+        df = _synthetic.generate(config, n_samples=n_samples, seed=seed)
         if noise > 0:
             df = inject_noise(df, config.target, noise, noise_type, seed)
-        return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
     # C — custom CSV
-    if config.family == "C":
+    elif config.family == "C":
         df = _custom.load_csv(config.eq_id, n_samples=n_samples, seed=seed)
         if noise > 0:
             df = inject_noise(df, config.target, noise, noise_type, seed)
-        return df[:int(len(df) * 0.8)], df[int(len(df) * 0.8):], None
 
     # F / B — feynman databases
-    df = _feyn.load_data(
-        config.eq_id, feynman_root, config.family, n_samples, seed,
-        target=config.target,
-    )
-    if noise > 0:
-        df = inject_noise(df, config.target, noise, noise_type, seed)
+    else:
+        df = _feyn.load_data(
+            config.eq_id, feynman_root, config.family, n_samples, seed,
+            target=config.target,
+        )
+        if noise > 0:
+            df = inject_noise(df, config.target, noise, noise_type, seed)
 
     feature_cols = [c for c in df.columns]
     pretty_map = _build_pretty_map(config.variables + [config.target], feature_cols)
@@ -198,7 +191,7 @@ def _build_pretty_map(
     variables: list[str],
     feature_cols: list[str],
 ) -> dict[str, str]:
-    """Map safe column names (x1, x2, ...) to physics symbols (θ, ...)."""
+    """Map safe column names (x1, x2, ...) to raw symbols (θ, ...)."""
     pm: dict[str, str] = {}
     for idx, safe in enumerate(feature_cols):
         pretty = variables[idx] if idx < len(variables) else safe
@@ -213,12 +206,9 @@ def _build_pretty_map(
 # Feynman exclusions
 
 def get_exclusion_reason(config: DatasetConfig) -> str | None:
-    """Return the exclusion reason for *config*, or ``None``.
-
-    Always returns ``None`` for S/T datasets.
     """
-    if config.family not in ("F", "B"):
-        return None
+    Return the exclusion reason for *config*, or ``None``.
+    """
     return _feyn.get_exclusion_reason(config.key)
 
 
@@ -228,7 +218,7 @@ def pretty_equation(
     eq: str,
     pretty_map: Optional[dict[str, str]],
 ) -> str:
-    """Substitute safe column names (x1, x2, ...) for physics symbols."""
+    """Substitute safe column names (x1, x2, ...) for raw symbols."""
     if not eq or not pretty_map:
         return eq
     # Replace longer tokens first to avoid partial overlaps (x1³ before x1).
