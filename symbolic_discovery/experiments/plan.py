@@ -4,10 +4,6 @@ Experiment plan resolution.
 Defines the Variant and Run dataclasses, and the parsers that turn CLI
 flags (--variant, --sweep) and YAML study files (--study) into a flat 
 list of concrete Run objects for the runner to execute.
-
-A Variant is a named (model, kwargs) pair. A Run is one cell in the
-experiment grid: a Variant combined with a dataset, noise level,
-noise type, sample size, and seed.
 """
 
 from __future__ import annotations

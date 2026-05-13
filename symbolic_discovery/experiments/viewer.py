@@ -1,15 +1,14 @@
 """
 Results viewer for symbolic-discovery experiment output.
 
-Two modes:
+Default behaviour: prints one table per (variant, noise, noise_type,
+n_samples, seed), with datasets as rows.
 
-    default   one table per (variant, noise, noise_type, n_samples, seed),
-              with datasets as rows. Shows every cell in the experiment
-              grid at full per-seed granularity.
-
-    stats     aggregates over seeds and datasets: one row per
-              (variant, noise, noise_type, n_samples) cell. Printed and
-              saved to ``<input>_stats.csv`` next to the input file.
+With ``--stats``: aggregates over seeds and datasets into one row per
+(variant, method, noise, noise_type, n_samples) cell. Reports run
+counts, success rate, R² mean/std/sem (over successful runs), and
+wall-clock mean/std/sem both over all runs and over successful runs
+only. Printed and saved to ``<input>_stats.csv`` next to the input file.
 """
 
 from __future__ import annotations
@@ -26,11 +25,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-from symbolic_discovery.analysis import (
-    aggregate_seeds,
-    success_rate,
-    successful,
-)
+from ..utils.analysis import aggregate
 
 console = Console()
 
@@ -79,13 +74,21 @@ def _fmt_time(val) -> str:
     return f"{f}s" if f != "—" else "—"
 
 
+def _fmt_mean_err(mean, err, fmt: str = ".4f", suffix: str = "") -> str:
+    if pd.isna(mean):
+        return "—"
+    m = _fmt(mean, fmt)
+    if pd.isna(err):
+        return f"{m}{suffix}"
+    return f"{m}{suffix} ± {_fmt(err, fmt)}{suffix}"
+
+
 def _truncate(s: str, n: int) -> str:
     s = str(s)
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
 def _params_label(params_json) -> str:
-    """Compact ``k=v, k=v`` rendering of a params_json string."""
     if not isinstance(params_json, str) or not params_json or params_json == "{}":
         return ""
     try:
@@ -98,7 +101,6 @@ def _params_label(params_json) -> str:
 
 
 def _cell_subtitle(noise, noise_type, n_samples, seed) -> str:
-    """Format the (noise, noise_type, n_samples, seed) coordinates of a cell."""
     parts = [f"noise={_fmt(noise, '.3g')}"]
     if pd.notna(noise_type):
         parts.append(str(noise_type))
@@ -119,7 +121,6 @@ _DS_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
 def _dataset_sort_key(s) -> tuple:
-    """Sort dataset keys naturally: S1, S2, ..., S10, T1, ..., F1, F2, ..., F11."""
     m = _DS_RE.match(str(s))
     if m:
         return (m.group(1), int(m.group(2)))
@@ -197,19 +198,12 @@ STATS_GROUP_COLS = ("variant", "method", "noise", "noise_type", "n_samples")
 def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
     group_by = [c for c in STATS_GROUP_COLS if c in df.columns]
 
-    # Total counts and success rate over all rows.
-    sr = success_rate(df, by=group_by)
+    df = df.copy()
+    df["found"] = df["status"] == "Found"
 
-    # Quality metrics computed only over successful runs — failed rows
-    # have r2=0.0 / mse=inf / mae=inf and would poison the means.
-    found = successful(df)
-    quality = aggregate_seeds(found, group_by=group_by).rename(
-        columns={"n_runs": "n_found"}
-    )
+    cell = aggregate(df, group_by)
 
-    # Left-merge: every cell from sr; metric NaNs where zero successes.
-    cell = sr.merge(quality, on=group_by, how="left")
-    cell["n_found"] = cell["n_found"].fillna(0).astype(int)
+    cell["n_found"] = (cell["n_runs"] * cell["success_rate"]).round().astype(int)
 
     # One table per (noise, noise_type, n_samples); variants as rows.
     partition_cols = [c for c in ("noise", "noise_type", "n_samples")
@@ -218,11 +212,12 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
     if sort_cols:
         cell = cell.sort_values(sort_cols).reset_index(drop=True)
 
-    # Section header (printed once).
+    # Section header
     console.print(
         "[bold cyan]Stats[/bold cyan]  "
         "[dim](aggregated over seeds and datasets; "
-        "R²/time over successful runs only)[/dim]"
+        "R² and time-found over successful runs only; "
+        "mean ± sem, with std shown separately)[/dim]"
     )
     console.print()
 
@@ -239,11 +234,11 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
         parts: list[str] = []
         if "noise" in kv:
             parts.append(f"noise={_fmt(kv['noise'], '.3g')}")
-        if "noise_type" in kv and pd.notna(kv["noise_type"]):
+        if "noise_type" in kv and pd.notna(kv["noise_type"]): # type: ignore
             parts.append(str(kv["noise_type"]))
-        if "n_samples" in kv and pd.notna(kv["n_samples"]):
+        if "n_samples" in kv and pd.notna(kv["n_samples"]): # type: ignore
             try:
-                parts.append(f"n={int(kv['n_samples'])}")
+                parts.append(f"n={int(kv['n_samples'])}") # type: ignore
             except (ValueError, TypeError):
                 pass
         subtitle = "  ".join(parts)
@@ -259,9 +254,12 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
         t.add_column("Runs", justify="right")
         t.add_column("Found", justify="right")
         t.add_column("Found %", justify="right")
-        t.add_column("Mean R²", justify="right")
-        t.add_column("Std R²", justify="right")
-        t.add_column("Mean time", justify="right")
+        t.add_column("R² (mean ± sem)", justify="right")
+        t.add_column("R² std", justify="right", style="dim")
+        t.add_column("Time (mean ± sem)", justify="right")
+        t.add_column("Time std", justify="right", style="dim")
+        t.add_column("Time-found (mean ± sem)", justify="right")
+        t.add_column("Time-found std", justify="right", style="dim")
 
         for _, r in sub.iterrows():
             sr_val = float(r["success_rate"])
@@ -276,9 +274,12 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
                 Text(str(int(r["n_found"])),
                      style=sr_style if sr_val < 1.0 else ""),
                 Text(f"{sr_val * 100:.1f}%", style=sr_style),
-                _fmt(r.get("r2_mean")),
+                _fmt_mean_err(r.get("r2_mean"), r.get("r2_sem")),
                 _fmt(r.get("r2_std")),
-                _fmt_time(r.get("time_s_mean")),
+                _fmt_mean_err(r.get("time_mean"), r.get("time_sem"), fmt=".3f", suffix="s"),
+                _fmt_time(r.get("time_std")),
+                _fmt_mean_err(r.get("time_mean_found"), r.get("time_sem_found"), fmt=".3f", suffix="s"),
+                _fmt_time(r.get("time_std_found")),
             )
         console.print(t)
         console.print()
@@ -288,7 +289,7 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cell.to_csv(save_path, index=False)
         console.print(
-            f"[dim]Saved {len(cell)} rows × {len(cell.columns)} cols to[/dim] "
+            f"[dim]Saved {len(cell)} rows x {len(cell.columns)} cols to[/dim] "
             f"[bold]{save_path}[/bold]"
         )
     else:
@@ -302,7 +303,7 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
 
 def view_results(
     csv_path: str,
-    mode: str = "default",
+    stats: bool = False,
     save_path: str | None = None,
 ) -> None:
     p = Path(csv_path)
@@ -321,20 +322,15 @@ def view_results(
         return
 
     console.print()
-    console.rule(f"[bold]{p.name}[/bold]  [dim]({len(df)} rows)[/dim]",
-                 style="bright_black")
+    console.rule(f"[bold]{p.name}[/bold]  [dim]({len(df)} rows)[/dim]", style="bright_black")
     console.print()
 
-    if mode == "default":
-        _view_default(df)
-    elif mode == "stats":
-        if save_path is None:
-            save = p.with_name(f"{p.stem}_stats.csv")
-        else:
-            save = Path(save_path)
+    if stats:
+        save = Path(save_path) if save_path is not None \
+            else p.with_name(f"{p.stem}_stats.csv")
         _view_stats(df, save)
     else:
-        console.print(f"[red]Unknown mode:[/red] {mode}")
+        _view_default(df)
 
 
 def main(argv=None):
@@ -342,29 +338,28 @@ def main(argv=None):
         description="View symbolic-discovery experiment results.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-modes:
-    default   one table per (variant, noise, noise_type, n_samples, seed)
-    stats     aggregate across seeds; saves <input>_stats.csv
+output:
+    default      one table per (variant, noise, noise_type, n_samples, seed)
+    with --stats aggregate over seeds and datasets; saves <input>_stats.csv
 
 examples:
     symbolic-discovery view results.csv
-    symbolic-discovery view results.csv --mode stats
-    symbolic-discovery view results.csv --mode stats --save-path my_stats.csv""",
+    symbolic-discovery view results.csv --stats
+    symbolic-discovery view results.csv --stats --save-path my_stats.csv""",
     )
     parser.add_argument("csv_file", help="Path to results CSV")
     parser.add_argument(
-        "--mode", "-m",
-        choices=["default", "stats"],
-        default="default",
-        help="Display mode (default: default)",
+        "--stats",
+        action="store_true",
+        help="Aggregate across seeds and datasets; saves <input>_stats.csv.",
     )
     parser.add_argument(
         "--save-path", default=None,
-        help="In stats mode, where to write per-cell stats CSV "
+        help="With --stats, where to write per-cell stats CSV "
              "(default: <input>_stats.csv next to the input file).",
     )
     args = parser.parse_args(argv)
-    view_results(args.csv_file, args.mode, args.save_path)
+    view_results(args.csv_file, stats=args.stats, save_path=args.save_path)
 
 
 if __name__ == "__main__":
