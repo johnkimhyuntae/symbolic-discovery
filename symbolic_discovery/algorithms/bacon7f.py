@@ -48,10 +48,10 @@ class BACON7F:
                  max_depth: int = 6,
                  initial_epsilon: float = 0.01,
                  initial_delta: float = 0.1,    
-                 c_val: float = 0.05,
+                 c_val: float = 0.2,
                  r_threshold: float = 0.45,
                  scale_factor: float = 1.2,
-                 n_folds: int = 5,
+                 n_folds: int = 3,
                  r2_threshold: float = 0.9,
                  log_level: str = "default"):
         """
@@ -126,11 +126,8 @@ class BACON7F:
             return
 
         self.logs.append(message)
-
-        if message:
-            print(f"[BACON.7F] {message}")
-        else:
-            print("")
+        print(f"[BACON.7F] {message}")
+        return
 
     
     def _check(self, dependent: Term, independent: Term) -> str:
