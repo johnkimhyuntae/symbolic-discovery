@@ -1,5 +1,3 @@
-"""Tests for the solver wrappers."""
-
 from __future__ import annotations
 
 import pandas as pd
@@ -86,3 +84,4 @@ class TestSolverResult:
         assert r.equation == "y = x"
         assert r.r2 == 1.0
         assert r.status == "Found"
+        

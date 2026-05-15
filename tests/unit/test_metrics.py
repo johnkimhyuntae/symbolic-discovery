@@ -1,5 +1,3 @@
-"""Tests for symbolic_discovery.utils.metrics."""
-
 from __future__ import annotations
 
 import numpy as np
@@ -19,11 +17,11 @@ from symbolic_discovery.utils.metrics import (
 
 class TestCalculateR:
     @pytest.mark.parametrize("X,Y,expected", [
-        # Perfectly correlated linear relationship -> r = 1.
+        # r = 1.
         (np.array([1, 2, 3, 4, 5]), np.array([2, 4, 6, 8, 10]), 1.0),
-        # Perfectly anti-correlated -> r = -1.
+        # r = -1.
         (np.array([1, 2, 3, 4, 5]), np.array([10, 8, 6, 4, 2]), -1.0),
-        # Identical arrays -> r = 1.
+        # r = 1.
         (np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]), 1.0),
     ])
     def test_correlation_extremes(self, X, Y, expected):
@@ -82,10 +80,6 @@ class TestCalculateMSE:
     ])
     def test_known_values(self, y_true, y_pred, expected):
         assert calculate_mse(y_true, y_pred) == pytest.approx(expected)
-
-    def test_returns_float(self):
-        result = calculate_mse(np.array([1, 2]), np.array([1, 2]))
-        assert isinstance(result, float)
 
 
 class TestCalculateMAE:

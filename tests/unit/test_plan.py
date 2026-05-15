@@ -1,5 +1,3 @@
-"""Tests for symbolic_discovery.experiments.plan."""
-
 from __future__ import annotations
 
 import dataclasses
@@ -349,3 +347,4 @@ class TestCoerce:
         result = _coerce(inp)
         assert isinstance(result, float)
         assert result == expected
+        

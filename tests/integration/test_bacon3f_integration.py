@@ -25,7 +25,7 @@ from symbolic_discovery.utils import equation_to_metrics
     ("T5", "5.67e-8*x1**4"),
 ])
 def test_recovers_law_on_clean_data(dataset_id, expected_expr):
-    """BACON.3F should recover clean catalogue laws."""
+    # We KNOW BACON.3F can solve clean S, T, with R^2 = 1
     config = CATALOGUE[dataset_id]
     train_df, test_df, _ = load(config, noise=0.0)
 
@@ -52,9 +52,7 @@ def test_recovers_law_on_clean_data(dataset_id, expected_expr):
 # Determinism
 
 class TestDeterminism:
-
     def test_same_seed_identical_result(self):
-        """Identical seeds should produce identical results."""
         config = CATALOGUE["S2"]
         train_df, test_df, _ = load(config, noise=0.0)
 
@@ -72,12 +70,10 @@ class TestDeterminism:
         assert mae_a == pytest.approx(mae_b)
 
 
-# Hand-crafted edge cases
+# Edge cases
 
 class TestEdgeCases:
-
     def test_constant_target_recovered(self):
-        """A constant target should be recovered."""
         df = pd.DataFrame({
             "x": np.linspace(1, 10, 20),
             "y": np.full(20, 3.14),
@@ -87,7 +83,6 @@ class TestEdgeCases:
         assert mse < 1e-10
 
     def test_two_identical_columns(self):
-        """Identical columns should still be solved."""
         vals = np.linspace(1, 10, 20)
         df = pd.DataFrame({"x": vals, "y": vals.copy()})
         equation, _ = BACON3F(log_level="quiet").discover(df, target_col="y")
@@ -96,7 +91,6 @@ class TestEdgeCases:
         assert r2 > 0.999
 
     def test_single_column_returns_failure_not_crash(self):
-        """A missing feature column should fail without crashing."""
         df = pd.DataFrame({"y": np.linspace(1, 10, 20)})
         equation, _ = BACON3F(log_level="quiet").discover(df, target_col="y")
         assert equation == "No law found"

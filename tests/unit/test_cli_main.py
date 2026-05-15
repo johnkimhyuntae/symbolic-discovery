@@ -1,7 +1,3 @@
-"""
-Tests for symbolic_discovery.cli.main.
-"""
-
 from __future__ import annotations
 
 from unittest.mock import Mock
@@ -36,7 +32,7 @@ class TestBuildArgParser:
             parser.parse_args([])
 
 
-# Empty argv -> print help, no dispatch
+# Empty argv -> print help
 
 class TestMainEmptyArgv:
     def test_prints_help(self, capsys):
@@ -110,7 +106,7 @@ class TestMainViewDispatch:
         runner_main.assert_not_called()
 
 
-# Unknown command -> SystemExit, no dispatch
+# Unknown command
 
 class TestMainUnknownCommand:
     def test_unknown_command_raises_systemexit(self, monkeypatch):

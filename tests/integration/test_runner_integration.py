@@ -1,7 +1,3 @@
-"""
-Integration tests for symbolic_discovery.experiments.runner.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -15,9 +11,6 @@ from symbolic_discovery.experiments.runner import (
     run_experiment,
 )
 
-
-# Shared helpers
-
 def _read_rows(csv_path):
     with open(csv_path) as f:
         return list(csv.DictReader(f))
@@ -26,7 +19,6 @@ def _read_rows(csv_path):
 # Single-run sanity
 
 class TestSingleRun:
-
     def test_writes_one_row(self, fake_solver, default_runner_args, tmp_path):
         out = tmp_path / "results.csv"
         args = default_runner_args(
@@ -63,7 +55,6 @@ class TestSingleRun:
 # CSV append behaviour
 
 class TestCsvAppend:
-
     def test_header_written_only_once(
         self, fake_solver, default_runner_args, tmp_path,
     ):
@@ -85,7 +76,7 @@ class TestCsvAppend:
 
         with open(out) as f:
             lines = f.readlines()
-        assert len(lines) == 3            # header + 2 data rows
+        assert len(lines) == 3 # header + 2 data rows
         assert lines[0].startswith("run_id,")
 
 
@@ -114,7 +105,6 @@ class TestSweep:
 # Full grid
 
 class TestFullGrid:
-
     def test_cardinality(self, fake_solver, default_runner_args, tmp_path):
         out = tmp_path / "results.csv"
         args = default_runner_args(
@@ -134,7 +124,6 @@ class TestFullGrid:
 # Study file
 
 class TestStudyFile:
-
     def test_full_run_from_study_file(
         self, fake_solver, default_runner_args, tmp_path,
     ):
@@ -163,9 +152,8 @@ class TestStudyFile:
 # main() entry point
 
 class TestMainEntryPoint:
-
     def test_main_argv_to_csv(self, fake_solver, tmp_path):
-        # Exercises the full main() entry point
+        # full main() entry point
         out = tmp_path / "results.csv"
         runner_main([
             "--variant", "v=fake",

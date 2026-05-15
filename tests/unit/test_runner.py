@@ -1,7 +1,3 @@
-"""
-Unit tests for symbolic_discovery.experiments.runner.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -30,12 +26,6 @@ KNOWN_MODEL = next(iter(SOLVER_REGISTRY))
 # _validate_args
 
 class TestValidateArgs:
-    """
-    Cross-flag validation: at least one of --models / --variant / --sweep /
-    --study must be supplied, and --datasets is required unless --study
-    provides them.
-    """
-
     def _parser(self):
         # Each test gets a fresh parser; argparse calls sys.exit on
         # parser.error, so we can catch SystemExit cleanly.
@@ -76,7 +66,7 @@ class TestBuildArgParser:
         assert args.datasets == ["S1"]
 
     def test_variant_is_appendable(self):
-        # --variant is action="append": each occurrence accumulates.
+        # --variant is action="append"
         parser = build_arg_parser()
         args = parser.parse_args([
             "--variant", f"a={KNOWN_MODEL}",
@@ -140,8 +130,6 @@ class TestBuildRuns:
         assert runs[0].variant.params == {}
 
     def test_models_use_default_axis_values(self, default_runner_args):
-        # Defaults defined in _build_runs when neither CLI nor study
-        # supply them. These pin the framework's documented behaviour.
         args = default_runner_args(models=[KNOWN_MODEL], datasets=["S1"])
         runs = _build_runs(args)
         r = runs[0]
@@ -171,7 +159,6 @@ class TestBuildRuns:
         assert [r.variant.params["k"] for r in runs] == [1, 2, 3]
 
     def test_models_variants_sweeps_concatenate(self, fake_solver, default_runner_args):
-        # 1 model + 1 variant + 2 swept = 4 distinct variants in the run list.
         args = default_runner_args(
             models=[KNOWN_MODEL],
             variant=["custom=fake:k=1"],
@@ -191,7 +178,6 @@ class TestBuildRuns:
             seeds=[1, 2, 3],
         )
         runs = _build_runs(args)
-        # 1 variant × 2 datasets × 2 noise × 2 noise_types × 2 n_samples × 3 seeds
         assert len(runs) == 1 * 2 * 2 * 2 * 2 * 3
 
     def test_no_variants_raises(self, default_runner_args):
@@ -214,12 +200,10 @@ class TestBuildRuns:
         }))
         args = default_runner_args(study=str(study_path))
         runs = _build_runs(args)
-        # 1 variant × 2 datasets × 2 noise × 1 noise_type × 1 n_samples × 2 seeds
         assert len(runs) == 8
 
     def test_cli_overrides_study(self, default_runner_args, tmp_path):
-        # Documented precedence: --datasets / --models / --seeds on the
-        # CLI replace, not merge, the study's values.
+        # --datasets / --models / --seeds on the CLI replace the study's values.
         study_path = tmp_path / "s.yaml"
         study_path.write_text(yaml.safe_dump({
             "variants": [{"name": "v_study", "model": KNOWN_MODEL}],
@@ -228,9 +212,9 @@ class TestBuildRuns:
         }))
         args = default_runner_args(
             study=str(study_path),
-            models=[KNOWN_MODEL],   # overrides study variants
-            datasets=["S3"],         # overrides study datasets
-            seeds=[99],              # overrides study seeds
+            models=[KNOWN_MODEL],
+            datasets=["S3"],
+            seeds=[99],
         )
         runs = _build_runs(args)
         assert all(r.dataset == "S3" for r in runs)
@@ -279,9 +263,6 @@ class TestWriteRow:
         assert row["status"] == "Found"
 
     def test_params_json_is_valid_and_sorted(self, csv_fieldnames):
-        # `sort_keys=True` is non-decorative: it means two rows with the
-        # same params produce identical JSON strings, so analysis can do
-        # df.groupby("params_json") to identify sweep variants.
         buf, writer = self._setup(csv_fieldnames)
         v, run, config, result = self._make()
         _write_row(writer, "rid_1", run, config, v, result, None)
@@ -329,7 +310,6 @@ class TestPrintProgress:
         run, v, config, result = self._make()
         _print_progress("rid_1", run, config, v, result, None)
         out = capsys.readouterr().out
-        # Identifying info, not exact format — the format may evolve.
         assert "v1" in out
         assert "S1" in out
         assert "Found" in out
@@ -342,18 +322,15 @@ class TestPrintProgress:
         assert "y = 2*x" in out
 
     def test_prints_details_for_failure(self, capsys):
-        # On failure the equation is "No law found"; we want the more
-        # informative raw_equation surfaced instead.
         run, v, config, result = self._make(
             status="Failure", equation="No law found",
-            raw="Excluded: too complex",
+            raw="Stinky equation!",
         )
         _print_progress("rid_1", run, config, v, result, None)
         out = capsys.readouterr().out
-        assert "Excluded: too complex" in out
+        assert "Stinky equation!" in out
 
     def test_truncates_long_equations(self, capsys):
-        # 100-term polynomials look ugly in the terminal; truncate.
         long_eq = "y = " + " + ".join([f"a{i}*x{i}" for i in range(100)])
         run, v, config, result = self._make(equation=long_eq, raw=long_eq)
         _print_progress("rid_1", run, config, v, result, None)

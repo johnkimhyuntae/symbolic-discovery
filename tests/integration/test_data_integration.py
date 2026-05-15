@@ -27,10 +27,8 @@ _no_feynman = pytest.mark.skipif(
 # load() for S / T
 
 class TestLoadSyntheticAndTextbook:
-    """Checks for the synthetic and textbook load pipeline."""
-
     @pytest.mark.parametrize("key", ["S1", "S2", "S3", "T1", "T2", "T3", "T4", "T5"])
-    def test_load_returns_train_test_and_none_pretty_map(self, key):
+    def test_load_returns_train_test(self, key):
         cfg = CATALOGUE[key]
         train_df, test_df, pretty_map = load(cfg, n_samples=100, seed=73)
 
@@ -78,9 +76,9 @@ class TestLoadSyntheticAndTextbook:
                 clean_train[var], noisy_train[var], check_names=False,
             )
 
-    def test_zero_noise_is_identical_to_clean(self):
+    def test_zero_noise_is_identical_regardless_of_type(self):
         cfg = CATALOGUE["T1"]
-        clean_train, clean_test, _ = load(cfg, noise=0.0, n_samples=100, seed=73)
+        clean_train, clean_test, _ = load(cfg, noise=0.0, noise_type="multiplicative", n_samples=100, seed=73)
         also_clean_train, also_clean_test, _ = load(
             cfg, noise=0.0, noise_type="additive", n_samples=100, seed=73,
         )
@@ -107,8 +105,6 @@ class TestLoadSyntheticAndTextbook:
 # expand_datasets with load
 
 class TestExpandThenLoad:
-    """Checks the common expand-and-load path."""
-
     def test_S_family_wildcard_expands_and_each_loads(self):
         keys = expand_datasets(["S"])
         assert keys == ["S1", "S2", "S3"]
@@ -186,12 +182,10 @@ class TestCustomCsv:
         )
 
 
-# Feynman / Bonus
+# Feynman / Bonus - only ran if root exists
 
 @_no_feynman
 class TestFeynmanLoadPipeline:
-    """Checks against on-disk Feynman and Bonus data."""
-
     def test_F1_resolves_and_loads(self):
         cfg = resolve("F1", feynman_root=FEYNMAN_ROOT)
         assert cfg.key == "F1"
@@ -248,8 +242,7 @@ class TestFeynmanLoadPipeline:
 
 @_no_feynman
 class TestFeynmanDirectoryStructure:
-    """Sanity checks that the on-disk layout matches what loaders expect."""
-
+    # If root exists, sanity check the expected files and dirs.
     def test_feynman_metadata_csv_present(self):
         assert (Path(FEYNMAN_ROOT) / "FeynmanEquations.csv").exists()
 
