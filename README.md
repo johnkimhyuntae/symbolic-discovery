@@ -1,8 +1,6 @@
 # symbolic-discovery
 
-University of Cambridge Computer Science Tripos Part II Project — Hyuntae Kim.
-
-A pip-installable Python framework for symbolic regression research, built around BACON-style discovery algorithms. Implements BACON.3F and BACON.7F (flat-pool adaptations of Langley and Miller's originals) alongside a PySR integration, with a unified solver interface, curated datasets, and an experiment runner for reproducible benchmarking.
+A pip-installable Python framework for symbolic regression research, built around BACON-style discovery algorithms. Implements **BACON.3F** and **BACON.7F** (flat-pool adaptations of Langley and Miller's originals) alongside a **PySR** integration, with a unified solver interface, curated datasets, and a YAML-driven experiment runner for reproducible benchmarking.
 
 ## Quickstart
 
@@ -13,125 +11,178 @@ pip install symbolic-discovery
 This exposes the `symbolic-discovery` CLI:
 
 ```bash
-symbolic-discovery --help
+symbolic-discovery run --help
+symbolic-discovery view --help
 ```
 
 Try it on the built-in datasets immediately:
 
 ```bash
-symbolic-discovery run --models bacon3f --datasets S T --noise 0.0 --output results.csv
+symbolic-discovery run --models bacon3f --datasets S T --output results.csv
 symbolic-discovery view results.csv
 ```
 
 ## Running Experiments
 
-The experiment runner iterates over the Cartesian product of models, datasets, noise levels, and seeds, writing results to a CSV in append mode.
+The runner expands a Cartesian product over models × datasets × noise levels × noise types × sample sizes × seeds, executes each cell, and appends one row per run to an output CSV.
 
 ```bash
 # BACON.3F on clean synthetic + textbook data
-symbolic-discovery run --models bacon3f --datasets S T --noise 0.0 --output results.csv
+symbolic-discovery run --models bacon3f --datasets S T --output results.csv
 
 # Compare BACON.3F and BACON.7F under noise
-symbolic-discovery run --models bacon3f bacon7f --datasets S2 T1 T2 --noise 0.0 0.01 0.05 --seeds 42 43 44 --output noise_sweep.csv
+symbolic-discovery run --models bacon3f bacon7f --datasets S2 T1 T2 \
+    --noise 0.0 0.01 0.05 --seeds 73 74 75 --output noise_sweep.csv
 
-# BACON.3F on specific Feynman equations
-symbolic-discovery run --models bacon3f --datasets F1 F8 F12 --seeds 42 --output feynman_results.csv
+# A named ablation, defined inline
+symbolic-discovery run --datasets T F --noise 0.0 0.05 \
+    --variant baseline=bacon7f \
+    --variant no_folds=bacon7f:n_folds=1 \
+    --variant no_relax=bacon7f:scale_factor=1.0
 
-# Full Feynman sweep
-symbolic-discovery run --models bacon3f bacon7f --datasets F --noise 0.0 --output feynman_full.csv
+# A one-knob hyperparameter sweep
+symbolic-discovery run --datasets S T --sweep bacon7f.n_folds=1,3,5,7
+
+# A full preregistered study from a YAML file
+symbolic-discovery run --study studies/validation.yaml --output validation.csv
 
 # PySR (optional dependency)
-symbolic-discovery run --models pysr --datasets S2 T1 --noise 0.0 --output pysr_results.csv
+symbolic-discovery run --models pysr --datasets S2 T1 --output pysr_results.csv
 
-# Custom CSV file
-symbolic-discovery run --models bacon3f --datasets my_data.csv --target V --noise 0.0 --output custom.csv
+# Your own CSV
+symbolic-discovery run --models bacon3f --datasets my_data.csv --target V \
+    --output custom.csv
 ```
+
+CLI flags override study fields per axis, so it is fine to point at a heavy YAML study and override `--seeds` for a quick re-run.
 
 ### Dataset Selectors
 
 | Selector | Description |
 |---|---|
-| `S1`..`S4` | Individual synthetic datasets |
-| `T1`..`T5` | Individual textbook laws (Ohm, Hooke, freefall, ideal gas, Stefan-Boltzmann) |
+| `S1`..`S3` | Individual synthetic datasets |
+| `T1`..`T5` | Individual textbook laws (Ohm, Hooke, freefall, ideal gas, Stefan–Boltzmann) |
 | `F1`..`F100` | Individual Feynman equations (by number) |
 | `B1`..`B20` | Individual Bonus equations (by number) |
-| `S` / `T` / `F` / `B` | All datasets in a family |
+| `S` / `T` / `F` / `B` | All datasets in that family |
 | `*.csv` | Custom CSV file (requires `--target`) |
 
 ### CLI Parameters
 
 | Flag | Description | Default |
 |---|---|---|
-| `--models` | Solvers to run (`bacon3f`, `bacon7f`, `pysr`) | *(required)* |
-| `--datasets` | Dataset selectors (see above) | *(required)* |
-| `--target` | Target column name (required for custom CSVs) | — |
-| `--noise` | Noise levels to inject | `0.0` |
-| `--seeds` | Random seeds for reproducibility | `42` |
-| `--output` | Output CSV path | `experiment_results.csv` |
-| `--verbose` | Verbose solver logs | off |
-| `--n-samples` | Rows per dataset | `1000` |
-| `--feynman-root` | Root directory for Feynman/Bonus data files | `feynman` |
+| `--models` | Solvers to run (`bacon3f`, `bacon7f`, `pysr`). Repeatable. | — |
+| `--variant` | Named variant of the form `name=model[:k=v,...]`. Repeatable. | — |
+| `--sweep` | One-knob sweep `model.param=v1,v2,...`. Repeatable. | — |
+| `--study` | Path to a YAML study file. CLI flags override study fields per axis. | — |
+| `--datasets` | Dataset selectors (see above). Required unless given by `--study`. | — |
+| `--target` | Target column name (required for custom CSVs). | — |
+| `--noise` | Noise levels to inject. | `0.0` |
+| `--noise-types` | Noise distributions (`multiplicative`, `additive`). | `multiplicative` |
+| `--n-samples` | Rows per dataset. | `1000` |
+| `--seeds` | Random seeds. | `73` |
+| `--log-level` | `default`, `verbose`, or `quiet`. | `default` |
+| `--output-root` | Root directory for output CSVs. | `results` |
+| `--output` | Output CSV path (relative to `--output-root`). | `experiment_results.csv` |
+| `--exclude` | Skip datasets that use operators beyond `+ - * /`. | off |
+| `--exclude-bacon` | Skip datasets known to be unsolvable by BACON. | off |
+| `--feynman-root` | Root directory for Feynman/Bonus data files. | `feynman` |
+
+One model must be specified — via `--models`, `--variant`, `--sweep`, or `--study`.
+
+### YAML Studies
+
+For multi-axis experiments, declare the full grid in a YAML file and pass it with `--study <path>`. The runner expands it into the same `list[Run]` that the direct CLI flags would produce.
+
+```yaml
+# studies/ablation_bacon7f.yaml
+variants:
+  - {name: baseline, model: bacon7f}
+  - {name: no_relax, model: bacon7f, params: {scale_factor: 1.0}}
+  - {name: no_folds, model: bacon7f, params: {n_folds: 1}}
+datasets: [T, F11, F15, F34, F41, F58, F60, F64, F83, F85, F96]
+noise:    [0.0, 0.025]
+seeds:    [73, 74, 75, 76, 77, 78, 79, 80, 81, 82]
+```
+
+```bash
+symbolic-discovery run --study studies/ablation_bacon7f.yaml --output ablation.csv
+```
+
+Top-level keys are `variants`, `datasets`, `noise`, `noise_types`, `n_samples`, and `seeds` (all optional, all falling back to their CLI defaults when omitted). CLI flags override study fields per axis, useful for one-knob variations on a heavy study.
 
 ## Viewing Results
 
-The results viewer renders experiment CSVs using rich tables:
+The viewer renders experiment CSVs as rich tables in the terminal:
 
 ```bash
-# Concise summary (default)
-symbolic-discovery view results.csv
-
-# Full per-row details
-symbolic-discovery view results.csv --mode full
-
-# Side-by-side solver comparison
-symbolic-discovery view results.csv --mode compare
+symbolic-discovery view results.csv                 # Concise summary (default)
+symbolic-discovery view results.csv --mode full     # All columns
+symbolic-discovery view results.csv --mode compare  # Side-by-side per solver
+symbolic-discovery view results.csv --stats         # Aggregated statistics
 ```
 
 ## Project Structure
 
 ```
-symbolic_discovery/
-├── algorithms/         # Core algorithm implementations (BACON3F, BACON7F)
-├── solvers/            # Public API: BaseSolver, SolverResult, SOLVER_REGISTRY, wrappers
-├── data/               # Unified dataset interface
-│   ├── api.py          # expand_datasets, resolve, load, get_exclusion_reason, pretty_equation
-│   ├── catalogue.py    # DatasetConfig + built-in S/T datasets
-│   ├── feynman.py      # Feynman/Bonus metadata, data file I/O, exclusions
-│   ├── feynman_exclusions.json
-│   ├── synthetic.py    # generate() + inject_noise()
-│   └── custom.py       # Custom CSV loader
-├── experiments/        # Experiment runner + results viewer
-│   ├── runner.py
-│   └── viewer.py
-├── cli/                # CLI entry point
-│   └── main.py
-└── utils/              # Metrics (R², MSE, MAE, r)
-    └── metrics.py
+symbolic-discovery/
+├── pyproject.toml
+├── README.md
+├── LICENSE
+├── requirements.txt
+├── symbolic_discovery/      # The pip-installable package
+│   ├── algorithms/          # BACON.3F and BACON.7F implementations
+│   │   ├── bacon3f.py
+│   │   └── bacon7f.py
+│   ├── solvers/             # Uniform solver interface
+│   │   ├── base.py          # BaseSolver ABC + SolverResult
+│   │   ├── registry.py      # SOLVER_REGISTRY dictionary
+│   │   ├── bacon3f.py       # BACON3FSolver wrapper
+│   │   ├── bacon7f.py       # BACON7FSolver wrapper
+│   │   └── pysr.py          # PySRSolver wrapper
+│   ├── data/                # Unified data layer
+│   │   ├── api.py           # load, resolve, expand_datasets, ...
+│   │   ├── config.py        # DatasetConfig dataclass
+│   │   ├── synthetic.py     # generate() + built-in S/T catalogue
+│   │   ├── feynman.py       # Feynman/Bonus metadata + file I/O
+│   │   ├── feynman_exclusions.json
+│   │   └── custom.py        # Custom CSV loader
+│   ├── experiments/         # Orchestration
+│   │   ├── plan.py          # Variant/Run dataclasses; CLI + YAML parsers
+│   │   ├── runner.py        # Executes runs; writes output CSV
+│   │   └── viewer.py        # Rich-based results viewer
+│   ├── cli/                 # CLI entry point
+│   │   └── main.py          # Dispatches run / view subcommands
+│   └── utils/               # Helpers
+│       ├── metrics.py       # R², MSE, MAE, r
+│       └── analysis.py      # Post-hoc aggregation helpers
+├── tests/                   # Unit, integration, and end-to-end tests
+├── studies/                 # YAML studies used in the dissertation
+└── results/                 # Output CSVs from studies
 ```
 
 ### Key Modules
 
-- `symbolic_discovery.algorithms` — BACON.3F and BACON.7F implementations
-- `symbolic_discovery.solvers` — Uniform solver interface (`BaseSolver`, `SolverResult`) + registry (`SOLVER_REGISTRY`)
-- `symbolic_discovery.data` — Unified data API: catalogue (S1–S4, T1–T5), Feynman/Bonus benchmark loaders, synthetic generation, noise injection, exclusion system
-- `symbolic_discovery.experiments.runner` — Batch experiment runner (Cartesian product over models × datasets × noise × seeds)
-- `symbolic_discovery.experiments.viewer` — Rich-based results viewer (concise/full/compare modes)
+- `symbolic_discovery.algorithms` — BACON.3F and BACON.7F discovery loops
+- `symbolic_discovery.solvers` — `BaseSolver` / `SolverResult` contract + `SOLVER_REGISTRY`
+- `symbolic_discovery.data` — Built-in S/T catalogue, Feynman/Bonus loaders, synthetic generation, noise injection, declarative exclusion list
+- `symbolic_discovery.experiments.plan` — Parses CLI flags and YAML studies into `list[Run]`
+- `symbolic_discovery.experiments.runner` — Executes runs, writes CSV
+- `symbolic_discovery.experiments.viewer` — Rich tables (concise / full / compare / stats)
 
 ## Optional Dependencies
 
 ### PySR (Julia-backed engine)
 
-PySR is integrated as an optional solver backend (`--models pysr`). It is not installed by default.
-
 ```bash
-pip install pysr
+pip install symbolic-discovery[pysr]
 ```
 
-PySR uses Julia via `juliapkg`/`juliacall`. The first run may download a Julia runtime and precompile Julia packages; subsequent runs are faster.
+PySR is integrated as an optional solver backend (`--models pysr`). It pulls Julia via `juliapkg` / `juliacall`; the first run downloads a Julia runtime and precompiles packages, subsequent runs are fast.
 
 ### Feynman / Bonus Datasets
 
-The Feynman/Bonus benchmarks are local assets, not bundled with `pip install`. Download from https://space.mit.edu/home/tegmark/aifeynman.html.
+The Feynman/Bonus benchmarks are local assets, not bundled with `pip install`. Download from <https://space.mit.edu/home/tegmark/aifeynman.html>.
 
 Expected layout under `--feynman-root` (default: `./feynman`):
 
@@ -147,54 +198,56 @@ feynman/
     └── ...
 ```
 
-The framework includes a `feynman_exclusions.json` file that categorises equations outside BACON's algorithmic ceiling (transcendental functions, square roots, complex expressions) for fair benchmarking.
+The package bundles `feynman_exclusions.json`, a curated list of equations outside BACON's algorithmic ceiling (transcendentals, square roots, complex compositions) used for fair benchmarking.
 
 ## Development
 
-### Setup from Source
+### Setup from source
 
 ```bash
-git clone https://github.com/johnkimhyuntae/symbolic-discovery.git
+git clone REDACTED (for anonymity)
 cd symbolic-discovery
 
 python3 -m venv .venv
 source .venv/bin/activate
 
 pip install -U pip
-pip install -e .
+pip install -e ".[dev,pysr]"
 ```
 
-This installs the package in editable mode with test dependencies. You can also invoke via the module entrypoint: `python -m symbolic_discovery --help`.
+The module entrypoint also works: `python -m symbolic_discovery --help`.
 
-### Running Tests
+### Tests
 
 ```bash
-pytest                           # All tests
-pytest -q                        # Quiet mode
-pytest tests/test_bacon3f.py -v  # Specific file, verbose
+pytest                            # All 330 tests
+pytest --cov=symbolic_discovery   # With coverage (≈88%)
+pytest tests/test_bacon3f.py -v   # One file, verbose
 ```
 
-### Adding a New Solver
+Feynman-tier tests are skipped when the database is absent, so the suite stays green on a clean clone.
 
-1. Create a wrapper in `symbolic_discovery/solvers/` implementing `BaseSolver`
-2. Register it in `symbolic_discovery/solvers/registry.py`
-3. Add tests in `tests/`
+### Adding a new solver
 
-See `solvers/pysr.py` for an example of wrapping an external library, or `solvers/bacon3f.py` for a minimal wrapper around an internal algorithm.
+1. Implement `BaseSolver` in `symbolic_discovery/solvers/your_solver.py`.
+2. Add one line to `symbolic_discovery/solvers/registry.py`.
+3. Add tests in `tests/`.
 
-### Adding a New Dataset
+`solvers/pysr.py` is the canonical example of wrapping an external library; `solvers/bacon3f.py` shows the minimal in-tree case.
 
-Add a `DatasetConfig` entry to `symbolic_discovery/data/catalogue.py`. It immediately integrates with the CLI, runner, and viewer.
+### Adding a new dataset
 
-### Code Style
+Add a `DatasetConfig` entry to `symbolic_discovery/data/synthetic.py` (for S/T-tier datasets). It immediately integrates with the CLI, runner, and viewer.
 
-The codebase uses type hints throughout and docstrings for public APIs.
+### Code style
+
+Type hints throughout, docstrings on every public class and function, three-tier `pytest` suite (unit / integration / end-to-end).
 
 ## Programmatic Usage
 
 ```python
-from symbolic_discovery.algorithms import BACON3F
 import pandas as pd
+from symbolic_discovery.algorithms import BACON3F
 
 df = pd.DataFrame({
     "I": [0.5, 1.0, 1.5, 2.0],
@@ -202,7 +255,11 @@ df = pd.DataFrame({
     "V": [5.0, 10.0, 15.0, 20.0],
 })
 
-solver = BACON3F(max_depth=3, verbose=True)
-equation, _ = solver.discover(df, target_col="V", seed=42)
-print(equation)        # V = I*R
+solver = BACON3F(max_depth=3)
+equation, _ = solver.discover(df, target_col="V", seed=73)
+print(equation)        # V = I * R
 ```
+
+## License
+
+Apache 2.0 - see [LICENSE](LICENSE)
