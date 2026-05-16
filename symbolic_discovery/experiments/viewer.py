@@ -254,12 +254,12 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
         t.add_column("Runs", justify="right")
         t.add_column("Found", justify="right")
         t.add_column("Found %", justify="right")
-        t.add_column("R² (mean ± sem)", justify="right")
-        t.add_column("R² std", justify="right", style="dim")
-        t.add_column("Time (mean ± sem)", justify="right")
-        t.add_column("Time std", justify="right", style="dim")
-        t.add_column("Time-found (mean ± sem)", justify="right")
-        t.add_column("Time-found std", justify="right", style="dim")
+        t.add_column("R²", justify="right")
+        t.add_column("R² sem", justify="right", style="dim")
+        t.add_column("Time", justify="right")
+        t.add_column("Time sem", justify="right", style="dim")
+        t.add_column("Time-found", justify="right")
+        t.add_column("Time-found sem", justify="right", style="dim")
 
         for _, r in sub.iterrows():
             sr_val = float(r["success_rate"])
@@ -274,12 +274,12 @@ def _view_stats(df: pd.DataFrame, save_path: Path | None) -> None:
                 Text(str(int(r["n_found"])),
                      style=sr_style if sr_val < 1.0 else ""),
                 Text(f"{sr_val * 100:.1f}%", style=sr_style),
-                _fmt_mean_err(r.get("r2_mean"), r.get("r2_sem")),
-                _fmt(r.get("r2_std")),
-                _fmt_mean_err(r.get("time_mean"), r.get("time_sem"), fmt=".3f", suffix="s"),
-                _fmt_time(r.get("time_std")),
-                _fmt_mean_err(r.get("time_mean_found"), r.get("time_sem_found"), fmt=".3f", suffix="s"),
-                _fmt_time(r.get("time_std_found")),
+                _fmt(r.get("r2_mean")),
+                _fmt(r.get("r2_sem")),
+                _fmt_time(r.get("time_mean")),
+                _fmt_time(r.get("time_sem")),
+                _fmt_time(r.get("time_mean_found")),
+                _fmt_time(r.get("time_sem_found")),
             )
         console.print(t)
         console.print()
@@ -364,3 +364,4 @@ examples:
 
 if __name__ == "__main__":
     main()
+    

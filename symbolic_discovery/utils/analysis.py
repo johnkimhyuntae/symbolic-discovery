@@ -58,9 +58,11 @@ def aggregate(df: pd.DataFrame, keys) -> pd.DataFrame:
 
 
 def parse_variants(df, regex, param_map, baseline_variant, baseline_params):
-    """Split each ``variant`` string into ``(param, param_value)`` columns
+    """
+    Split each ``variant`` string into ``(param, param_value)`` columns
     and echo the baseline row once per parameter so the baseline point
-    appears on every sensitivity curve."""
+    appears on every sensitivity curve.
+    """
     pat = re.compile(regex)
 
     def extract(name):
@@ -91,11 +93,11 @@ def equivalence_ratio(discovered: str, key: str, *, feynman_root: str = "feynman
     """
     expected = resolve(key, feynman_root=feynman_root).formula
     rhs = lambda s: s.split("=", 1)[1] if "=" in s else s
-    ratio = sympy.simplify(sympy.sympify(rhs(discovered))
-                           / sympy.sympify(rhs(expected)))
+    ratio = sympy.simplify(sympy.sympify(rhs(discovered)) / sympy.sympify(rhs(expected)))
     if ratio.free_symbols:
         return 0.0
     try:
         return float(ratio)
     except (TypeError, ValueError):
         return 0.0
+    
