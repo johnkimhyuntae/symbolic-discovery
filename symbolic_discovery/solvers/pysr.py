@@ -4,38 +4,10 @@ import re
 import time
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from symbolic_discovery.utils import calculate_mse, calculate_r2, calculate_mae
 from .base import BaseSolver, SolverResult
-
-
-def _extract_equation(model: Any) -> str:
-    """Pull the best symbolic equation string from a fitted PySRRegressor."""
-    if hasattr(model, "get_best"):
-        best = model.get_best()
-        if isinstance(best, pd.Series):
-            for key in ("sympy_format", "equation"):
-                if key in best:
-                    return str(best[key])
-            return str(best.to_dict())
-        if isinstance(best, dict):
-            return str(best.get("sympy_format") or best.get("equation") or best)
-        return str(best)
-
-    if hasattr(model, "sympy"):
-        return str(model.sympy())
-
-    if hasattr(model, "equations_"):
-        eqs = model.equations_
-        if hasattr(eqs, "iloc") and len(eqs) > 0:
-            for col in ("equation", "sympy_format"):
-                if col in getattr(eqs, "columns", []):
-                    return str(eqs.iloc[0][col])
-            return str(eqs.iloc[0])
-
-    return ""
 
 
 class PySRSolver(BaseSolver):
@@ -128,7 +100,7 @@ class PySRSolver(BaseSolver):
 
         # Equation extraction
         try:
-            raw_eq = _extract_equation(model)
+            raw_eq = str(model.sympy())
         except Exception as e:
             raw_eq = f"PySR fitted but equation extraction failed: {e}"
             return SolverResult(
@@ -144,18 +116,6 @@ class PySRSolver(BaseSolver):
 
         duration = time.time() - start
 
-        if not raw_eq:
-            return SolverResult(
-                equation="No law found",
-                raw_equation="No law found",
-                r2=float("nan"), 
-                mse=float("nan"), 
-                mae=float("nan"),
-                time_sec=duration,
-                status="Failure",
-                logs=[],
-            )
-
         equation = f"{target_col} = {raw_eq}" if "=" not in raw_eq else raw_eq
 
         return SolverResult(
@@ -166,3 +126,4 @@ class PySRSolver(BaseSolver):
             status="Found",
             logs=[], # For now, empty.
         )
+    
