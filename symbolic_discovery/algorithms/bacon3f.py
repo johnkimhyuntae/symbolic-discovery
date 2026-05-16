@@ -185,14 +185,17 @@ class BACON3F:
 
             if intercept_cv < self.constancy_threshold:
                 # Negligible intercept: y = mx -> invariant is y/x
-                new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
+                new_expr = (dependent.symbol) / (independent.symbol) # type: ignore[operator]
+                if str(new_expr) in self.known_expressions:
+                    self._log(f"    -> Null (Ratio {new_expr} already known)", level="verbose")
+                    return (None, "Null")
                 vals = Y / safe_X
                 self._log(f"    -> Linear (negligible intercept) => {new_expr}", level="verbose")
                 return (Term(new_expr, vals), "Linear")
             else:
                 # Significant intercept: invariant is y − mx
                 m_sym = float(f"{m:.4g}")
-                new_expr = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
+                new_expr = (dependent.symbol) - m_sym * (independent.symbol) # type: ignore[operator]
                 vals = Y - m * X
                 self._log(f"    -> Linear (significant intercept) => {new_expr}", level="verbose")
                 return (Term(new_expr, vals), "Linear")
@@ -212,7 +215,7 @@ class BACON3F:
         self._log(f"  Checking for monotonic trend...", level="verbose")
         if r > 0:
             # co-varying: divide to get invariant
-            new_expr = dependent.symbol / independent.symbol # type: ignore[operator]
+            new_expr = (dependent.symbol) / (independent.symbol) # type: ignore[operator]
             if str(new_expr) in self.known_expressions:
                 self._log(f"    -> Null (Ratio {new_expr} already known)", level="verbose")
                 return (None, "Null")
@@ -221,7 +224,7 @@ class BACON3F:
             return (Term(new_expr, vals), "Ratio")
         elif r < 0:
             # inversely varying: multiply to get invariant
-            new_expr = dependent.symbol * independent.symbol # type: ignore[operator]
+            new_expr = (dependent.symbol) * (independent.symbol) # type: ignore[operator]
             if str(new_expr) in self.known_expressions:
                 self._log(f"    -> Null (Product {new_expr} already known)", level="verbose")
                 return (None, "Null")

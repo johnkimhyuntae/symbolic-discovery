@@ -1,5 +1,3 @@
-"""End-to-end checks for the top-level CLI."""
-
 from __future__ import annotations
 
 import csv
@@ -18,8 +16,6 @@ def _read_csv_rows(path: Path) -> list[dict]:
 # The round-trip
 
 class TestCliRoundTrip:
-    """Round-trip checks through the top-level CLI."""
-
     def test_run_then_view(self, fake_solver, tmp_path, capsys):
         out = tmp_path / "results.csv"
 
@@ -55,7 +51,6 @@ class TestCliRoundTrip:
         assert "results.csv" in captured.out
 
     def test_run_with_sweep_and_view_stats(self, fake_solver, tmp_path, capsys):
-        """Sweeps expand into variants and stats mode writes a sibling CSV."""
         out = tmp_path / "sweep.csv"
 
         cli_main([
@@ -82,8 +77,6 @@ class TestCliRoundTrip:
 # Failure modes
 
 class TestCliFailureModes:
-    """CLI misuse should fail explicitly but predictably."""
-
     def test_no_args_prints_help_and_returns(self, capsys):
         cli_main([])
         captured = capsys.readouterr()
@@ -111,3 +104,4 @@ class TestCliFailureModes:
         cli_main(["view", str(tmp_path / "nonexistent.csv")])
         captured = capsys.readouterr()
         assert "not found" in captured.out.lower()
+        

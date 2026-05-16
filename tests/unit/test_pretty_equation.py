@@ -1,5 +1,3 @@
-"""Tests for pretty_equation and _build_pretty_map."""
-
 from __future__ import annotations
 
 import pytest
@@ -75,3 +73,4 @@ class TestBuildPrettyMap:
 
     def test_empty_inputs(self):
         assert _build_pretty_map([], []) == {}
+        

@@ -1,5 +1,3 @@
-"""Tests for the data layer."""
-
 from __future__ import annotations
 
 import numpy as np
@@ -41,7 +39,7 @@ class TestCatalogue:
             key="X1", eq_id="X1", family="S",
             variables=["a"], target="b", formula="a",
         )
-        assert cfg.domain == {}  # default_factory -> empty dict
+        assert cfg.domain == {}
 
 
 # expand_datasets
@@ -68,7 +66,7 @@ class TestExpandDatasets:
             assert key in out
 
     def test_strips_whitespace_in_tokens(self):
-        out = expand_datasets(["  S1  "])
+        out = expand_datasets(["                 S1                                                  "])
         assert "S1" in out
 
 

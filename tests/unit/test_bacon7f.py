@@ -110,3 +110,4 @@ class TestApply:
         x = _term("x", [1.0, 2.0, 3.0])
         y = _term("y", [5.0, 5.0, 5.0])
         assert solver._apply("Constant", y, x) is y
+        

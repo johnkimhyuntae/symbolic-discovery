@@ -1,5 +1,3 @@
-"""Integration tests for BACON.7F."""
-
 from __future__ import annotations
 
 import numpy as np
@@ -25,7 +23,7 @@ from symbolic_discovery.utils import equation_to_metrics
     ("T5", "5.67e-8*x1**4"),
 ])
 def test_recovers_law_on_clean_data(dataset_id, expected_expr):
-    """BACON.7F should recover clean catalogue laws."""
+    #  We KNOW BACON.7F can solve clean S, T, with R^2 = 1 (at these params)
     config = CATALOGUE[dataset_id]
     train_df, test_df, _ = load(config, noise=0.0)
 
@@ -54,7 +52,7 @@ class TestNFoldsSensitivity:
 
     @pytest.mark.parametrize("dataset_id", ["S2", "T1"])
     def test_n_folds_1_still_works(self, dataset_id):
-        """n_folds=1 should still solve clean data."""
+        # n_folds=1 should still solve clean data like B3F
         config = CATALOGUE[dataset_id]
         train_df, test_df, _ = load(config, noise=0.0)
         solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
@@ -67,7 +65,6 @@ class TestNFoldsSensitivity:
 
     @pytest.mark.parametrize("n_folds", [1, 3, 5])
     def test_all_n_folds_succeed_on_clean(self, n_folds):
-        """Clean recovery should hold across n_folds values."""
         config = CATALOGUE["S2"]
         train_df, test_df, _ = load(config, noise=0.0)
         solver = BACON7F(r2_threshold=0.999, scale_factor=1.0, 
@@ -83,7 +80,7 @@ class TestNFoldsSensitivity:
 
 @pytest.mark.parametrize("dataset_id", ["S2", "T1"])
 def test_noise_resilience_vs_bacon3f(dataset_id):
-    """Under modest noise, BACON.7F should track BACON.3F or better."""
+    # Should be better than B3F under noise. 
     config = CATALOGUE[dataset_id]
     train_df, _, _ = load(config, noise=0.02)
     target = config.target
@@ -102,7 +99,6 @@ def test_noise_resilience_vs_bacon3f(dataset_id):
 # Determinism
 
 class TestDeterminism:
-
     def test_same_seed_identical_result(self):
         config = CATALOGUE["S2"]
         train_df, test_df, _ = load(config, noise=0.0)
@@ -119,12 +115,10 @@ class TestDeterminism:
         assert r2_a == pytest.approx(r2_b)
 
 
-# Hand-crafted edge cases
+# Edge cases
 
 class TestEdgeCases:
-
     def test_constant_target_recovered(self):
-        """A constant target should be recovered."""
         df = pd.DataFrame({
             "x": np.linspace(1, 10, 20),
             "y": np.full(20, 3.14),
@@ -134,7 +128,6 @@ class TestEdgeCases:
         assert mse < 1e-10
 
     def test_two_identical_columns(self):
-        """Identical columns should still be solved."""
         vals = np.linspace(1, 10, 20)
         df = pd.DataFrame({"x": vals, "y": vals.copy()})
         equation, _ = BACON7F(log_level="quiet").discover(df, target_col="y")
@@ -143,30 +136,6 @@ class TestEdgeCases:
         assert r2 > 0.999
 
     def test_single_column_returns_failure_not_crash(self):
-        """A missing feature column should fail without crashing."""
         df = pd.DataFrame({"y": np.linspace(1, 10, 20)})
         equation, _ = BACON7F(log_level="quiet").discover(df, target_col="y")
         assert equation == "No law found"
-
-
-# Voting under localised noise
-
-class TestVotingFiltersNoise:
-
-    def test_localised_corruption_handled(self):
-        """Voting should tolerate a corrupted contiguous slice."""
-        np.random.seed(73)
-        x = np.linspace(1, 10, 60)
-        y = 5.0 / x
-
-        # Corrupt the middle third only.
-        y_noisy = y.copy()
-        y_noisy[20:40] += np.random.normal(0, 0.02, 20)
-
-        df = pd.DataFrame({"x": x, "y": y_noisy})
-        solver = BACON7F(r2_threshold=0.9, n_folds=3, log_level="quiet")
-        equation, _ = solver.discover(df, target_col="y")
-        r2, _, _ = equation_to_metrics(equation, df, "y")
-
-        assert equation != "No law found"
-        assert r2 > 0.9

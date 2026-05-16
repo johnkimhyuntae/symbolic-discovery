@@ -1,5 +1,3 @@
-"""Tests for BACON.3F internals."""
-
 from __future__ import annotations
 
 import numpy as np

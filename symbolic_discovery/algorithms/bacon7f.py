@@ -196,15 +196,15 @@ class BACON7F:
         # Monotonic trend checks
         self._log(f"    Checking for monotonic trend...", level="verbose")
         if r > 0:
-            key = f"{dependent.symbol}/{independent.symbol}"
+            key = f"({dependent.symbol})/({independent.symbol})"
             if key in self.known_expressions:
                 self._log(f"      -> Null (Ratio {key} already known)", level="verbose")
                 return "Null"
             self._log(f"      -> Ratio => {key}", level="verbose")
             return "Ratio"
         elif r < 0:
-            key1 = f"{dependent.symbol}*{independent.symbol}"
-            key2 = f"{independent.symbol}*{dependent.symbol}"
+            key1 = f"({dependent.symbol})*({independent.symbol})"
+            key2 = f"({independent.symbol})*({dependent.symbol})"
             if key1 in self.known_expressions or key2 in self.known_expressions:
                 self._log(f"      -> Null (Product {key1} or {key2} already known)", level="verbose")
                 return "Null"
@@ -282,7 +282,7 @@ class BACON7F:
             return dependent
 
         if winning_rel == "Ratio":
-            term = dependent.symbol / independent.symbol # type: ignore[operator]
+            term = (dependent.symbol) / (independent.symbol) # type: ignore[operator]
             if str(term) in self.known_expressions:
                 self._log(f"      -> None (Ratio {term} already known)", level="verbose")
                 return None
@@ -290,7 +290,7 @@ class BACON7F:
             return Term(term, Y / safe_X)
 
         if winning_rel == "Product":
-            term = dependent.symbol * independent.symbol # type: ignore[operator]
+            term = (dependent.symbol) * (independent.symbol) # type: ignore[operator]
             if str(term) in self.known_expressions:
                 self._log(f"      -> None (Product {term} already known)", level="verbose")
                 return None
@@ -304,7 +304,7 @@ class BACON7F:
             self._log(f"      intercept_ratio=|c/M_Y|={abs(c / (M_Y + 1e-9)):.4g} vs c_val={self.c_val}", level="verbose")
             if abs(c / (M_Y + 1e-9)) < self.c_val:
                 # Negligible intercept: y ≈ mx -> invariant is y/x
-                term = dependent.symbol / independent.symbol # type: ignore[operator]
+                term = (dependent.symbol) / (independent.symbol) # type: ignore[operator]
                 if str(term) in self.known_expressions:
                     self._log(f"      -> None ({term} already known)", level="verbose")
                     return None
@@ -313,7 +313,7 @@ class BACON7F:
             else:
                 # Significant intercept: invariant is y − mx
                 m_sym = float(f"{m:.4g}")
-                term = dependent.symbol - m_sym * independent.symbol # type: ignore[operator]
+                term = (dependent.symbol) - m_sym * (independent.symbol) # type: ignore[operator]
                 if str(term) in self.known_expressions:
                     self._log(f"      -> None ({term} already known)", level="verbose")
                     return None
