@@ -145,7 +145,7 @@ class BACON3F:
         safe_X = np.where(np.abs(X) < 1e-9, 1e-9, X)
 
         # Constancy check
-        self._log(f"  Checking constancy...", level="verbose")
+        self._log("  Checking constancy...", level="verbose")
 
         M_Y = float(np.mean(Y))
         if np.abs(M_Y) < 1e-4:
@@ -158,11 +158,11 @@ class BACON3F:
             lo, hi = sorted([M_Y * (1 - self.constancy_threshold), M_Y * (1 + self.constancy_threshold)])
             self._log(f"    band=[{lo:.4g}, {hi:.4g}], frac_in={float(np.mean((Y>lo)&(Y<hi))):.3f}", level="verbose")
             if np.mean((Y > lo) & (Y < hi)) > 0.95:
-                self._log(f"    -> Constant", level="verbose")
+                self._log("    -> Constant", level="verbose")
                 return (dependent, "Constant")
 
         # Linearity check
-        self._log(f"  Checking linearity...", level="verbose")
+        self._log("  Checking linearity...", level="verbose")
 
         # Sort by X, compute finite-difference slopes, test constancy
         sorted_idx = np.argsort(X)
@@ -201,18 +201,18 @@ class BACON3F:
                 return (Term(new_expr, vals), "Linear")
         
         # Uncorrelatedness check
-        self._log(f"  Checking uncorrelatedness...", level="verbose")
+        self._log("  Checking uncorrelatedness...", level="verbose")
 
         r = calculate_r(X, Y)
 
         self._log(f"    Pearson r={r:.4f} vs r_threshold={self.r_threshold}", level="verbose")
 
         if np.abs(r) < self.r_threshold:
-            self._log(f"    -> Null (uncorrelated)", level="verbose")
+            self._log("    -> Null (uncorrelated)", level="verbose")
             return (None, "Null")
 
         # Monotonic trend check
-        self._log(f"  Checking for monotonic trend...", level="verbose")
+        self._log("  Checking for monotonic trend...", level="verbose")
         if r > 0:
             # co-varying: divide to get invariant
             new_expr = (dependent.symbol) / (independent.symbol) # type: ignore[operator]
@@ -232,7 +232,7 @@ class BACON3F:
             self._log(f"    -> Product => {new_expr}", level="verbose")
             return (Term(new_expr, vals), "Product")
         
-        self._log(f"    -> Null (r=0)", level="verbose")
+        self._log("    -> Null (r=0)", level="verbose")
         return (None, "Null")
     
 
@@ -392,7 +392,7 @@ class BACON3F:
 
                 # Skip pairs already checked in previous layers
                 if (str(dependent.symbol), str(independent.symbol)) in self.tried_permutations:
-                    self._log(f"  Skip: already tried", level="verbose")
+                    self._log("  Skip: already tried", level="verbose")
                     continue
 
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
@@ -400,14 +400,14 @@ class BACON3F:
                 result, relation_type = self._check(dependent, independent)
 
                 if result is None:
-                    self._log(f"  No composite produced", level="verbose")
+                    self._log("  No composite produced", level="verbose")
                     continue
 
                 if relation_type == "Constant":
                     self._log(f"  Constant: {result.symbol}", level="verbose")
                     # Only record laws that involve the target variable
                     if self._contains_target(result.symbol) and str(result.symbol) not in self.discovered_strs:
-                        self._log(f"  Contains target & novel -> evaluating as candidate law", level="verbose")
+                        self._log("  Contains target & novel -> evaluating as candidate law", level="verbose")
                         self.discovered_strs.add(str(result.symbol))
                         self.known_expressions.add(str(result.symbol))
 

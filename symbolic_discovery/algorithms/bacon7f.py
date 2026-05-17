@@ -164,7 +164,7 @@ class BACON7F:
         Y = dependent.values
 
         # Constancy check
-        self._log(f"    Checking constancy...", level="verbose")
+        self._log("    Checking constancy...", level="verbose")
 
         M_Y = float(np.mean(Y))
         if np.abs(M_Y) < 1e-4:
@@ -175,26 +175,26 @@ class BACON7F:
             lo, hi = sorted([M_Y * (1 - self.delta), M_Y * (1 + self.delta)])
             self._log(f"      band=[{lo:.4g}, {hi:.4g}], frac_in={float(np.mean((Y>lo)&(Y<hi))):.3f}", level="verbose")
             if np.mean((Y > lo) & (Y < hi)) > 0.95:
-                self._log(f"      -> Constant", level="verbose")
+                self._log("      -> Constant", level="verbose")
                 return "Constant"
 
         # Linearity check
-        self._log(f"    Checking linearity...", level="verbose")
+        self._log("    Checking linearity...", level="verbose")
 
         r = calculate_r(X, Y)
         self._log(f"      Pearson r={r:.4f}, 1-|r|={1-abs(r):.4g} vs epsilon={self.epsilon}", level="verbose")
         if (1 - abs(r)) < self.epsilon:
-            self._log(f"      -> Linear", level="verbose")
+            self._log("      -> Linear", level="verbose")
             return "Linear"
 
         # Uncorrelatedness check
-        self._log(f"    Checking uncorrelatedness...", level="verbose")
+        self._log("    Checking uncorrelatedness...", level="verbose")
         if abs(r) < self.r_threshold:
-            self._log(f"      -> Null (uncorrelated)", level="verbose")
+            self._log("      -> Null (uncorrelated)", level="verbose")
             return "Null"
 
         # Monotonic trend checks
-        self._log(f"    Checking for monotonic trend...", level="verbose")
+        self._log("    Checking for monotonic trend...", level="verbose")
         if r > 0:
             key = f"({dependent.symbol})/({independent.symbol})"
             if key in self.known_expressions:
@@ -211,7 +211,7 @@ class BACON7F:
             self._log(f"      -> Product => {key1}", level="verbose")
             return "Product"
         
-        self._log(f"      -> Null (r=0)", level="verbose")
+        self._log("      -> Null (r=0)", level="verbose")
         return "Null"
     
 
@@ -240,7 +240,7 @@ class BACON7F:
             winning_rel = tied[0]
         else:
             winning_rel = min(tied, key=lambda r: RELATION_PRIORITY.get(r, 99))
-            self._log(f"    Tiebreak applied", level="verbose")
+            self._log("    Tiebreak applied", level="verbose")
         
         self._log(f"    Election winner: {winning_rel}", level="verbose")
         return winning_rel
@@ -298,7 +298,8 @@ class BACON7F:
             return Term(term, Y * X)
 
         if winning_rel == "Linear":
-            c, m = Polynomial.fit(X, Y, 1).convert().coef
+            coef = Polynomial.fit(X, Y, 1).convert().coef
+            c, m = float(coef[0]), float(coef[1])
             self._log(f"      Linear fit on full data: m={m:.4g}, c={c:.4g}", level="verbose")
             M_Y = float(np.mean(Y))
             self._log(f"      intercept_ratio=|c/M_Y|={abs(c / (M_Y + 1e-9)):.4g} vs c_val={self.c_val}", level="verbose")
@@ -504,7 +505,7 @@ class BACON7F:
 
                 # Skip pairs already checked in previous layers
                 if (str(dependent.symbol), str(independent.symbol)) in self.tried_permutations:
-                    self._log(f"  Skip: already tried", level="verbose")
+                    self._log("  Skip: already tried", level="verbose")
                     continue
 
                 self.tried_permutations.add((str(dependent.symbol), str(independent.symbol)))
@@ -543,7 +544,7 @@ class BACON7F:
                 full_term = self._apply(winning_rel, dependent, independent)
 
                 if full_term is None:
-                    self._log(f"  -> Skip (apply produced None)", level="verbose")
+                    self._log("  -> Skip (apply produced None)", level="verbose")
                     continue
 
                 # Handle discovered laws
@@ -551,7 +552,7 @@ class BACON7F:
                     self._log(f"  Constant: {full_term.symbol}", level="verbose")
                     self.known_expressions.add(str(full_term.symbol))
                     if self._contains_target(full_term.symbol) and str(full_term.symbol) not in self.discovered_strs:
-                        self._log(f"  Contains target & novel -> evaluating as candidate law", level="verbose")
+                        self._log("  Contains target & novel -> evaluating as candidate law", level="verbose")
                         self.discovered_strs.add(str(full_term.symbol))
 
                         # Rearrange to target = f(other vars) and evaluate
