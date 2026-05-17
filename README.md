@@ -24,7 +24,7 @@ symbolic-discovery view results.csv
 
 ## Running Experiments
 
-The runner expands a Cartesian product over models × datasets × noise levels × noise types × sample sizes × seeds, executes each cell, and appends one row per run to an output CSV.
+The runner expands a Cartesian product over models x datasets x noise levels x noise types x sample sizes x seeds, executes each cell, and appends one row per run to an output CSV.
 
 ```bash
 # BACON.3F on clean synthetic + textbook data
@@ -88,7 +88,7 @@ CLI flags override study fields per axis, so it is fine to point at a heavy YAML
 | `--exclude-bacon` | Skip datasets known to be unsolvable by BACON. | off |
 | `--feynman-root` | Root directory for Feynman/Bonus data files. | `feynman` |
 
-One model must be specified — via `--models`, `--variant`, `--sweep`, or `--study`.
+One model must be specified via `--models`, `--variant`, `--sweep`, or `--study`.
 
 ### YAML Studies
 
@@ -109,16 +109,14 @@ seeds:    [73, 74, 75, 76, 77, 78, 79, 80, 81, 82]
 symbolic-discovery run --study studies/ablation_bacon7f.yaml --output ablation.csv
 ```
 
-Top-level keys are `variants`, `datasets`, `noise`, `noise_types`, `n_samples`, and `seeds` (all optional, all falling back to their CLI defaults when omitted). CLI flags override study fields per axis, useful for one-knob variations on a heavy study.
+Top-level keys are `variants`, `datasets`, `noise`, `noise_types`, `n_samples`, and `seeds` (all optional, all falling back to their CLI defaults when omitted). CLI flags override study fields per axis.
 
 ## Viewing Results
 
 The viewer renders experiment CSVs as rich tables in the terminal:
 
 ```bash
-symbolic-discovery view results.csv                 # Concise summary (default)
-symbolic-discovery view results.csv --mode full     # All columns
-symbolic-discovery view results.csv --mode compare  # Side-by-side per solver
+symbolic-discovery view results.csv                 # Concise summary
 symbolic-discovery view results.csv --stats         # Aggregated statistics
 ```
 
@@ -147,28 +145,27 @@ symbolic-discovery/
 │   │   ├── feynman.py       # Feynman/Bonus metadata + file I/O
 │   │   ├── feynman_exclusions.json
 │   │   └── custom.py        # Custom CSV loader
-│   ├── experiments/         # Orchestration
+│   ├── experiments/         # Experiment Orchestration
 │   │   ├── plan.py          # Variant/Run dataclasses; CLI + YAML parsers
 │   │   ├── runner.py        # Executes runs; writes output CSV
 │   │   └── viewer.py        # Rich-based results viewer
 │   ├── cli/                 # CLI entry point
 │   │   └── main.py          # Dispatches run / view subcommands
 │   └── utils/               # Helpers
-│       ├── metrics.py       # R², MSE, MAE, r
+│       ├── metrics.py       # R^2, MSE, MAE, r
 │       └── analysis.py      # Post-hoc aggregation helpers
 ├── tests/                   # Unit, integration, and end-to-end tests
-├── studies/                 # YAML studies used in the dissertation
-└── results/                 # Output CSVs from studies
+└── studies/                 # YAML studies used in the dissertation
 ```
 
 ### Key Modules
 
-- `symbolic_discovery.algorithms` — BACON.3F and BACON.7F discovery loops
-- `symbolic_discovery.solvers` — `BaseSolver` / `SolverResult` contract + `SOLVER_REGISTRY`
+- `symbolic_discovery.algorithms` — BACON.3F and BACON.7F
+- `symbolic_discovery.solvers` — `BaseSolver` / `SolverResult` + `SOLVER_REGISTRY`
 - `symbolic_discovery.data` — Built-in S/T catalogue, Feynman/Bonus loaders, synthetic generation, noise injection, declarative exclusion list
 - `symbolic_discovery.experiments.plan` — Parses CLI flags and YAML studies into `list[Run]`
 - `symbolic_discovery.experiments.runner` — Executes runs, writes CSV
-- `symbolic_discovery.experiments.viewer` — Rich tables (concise / full / compare / stats)
+- `symbolic_discovery.experiments.viewer` — Rich tables (summary / stats)
 
 ## Optional Dependencies
 
@@ -178,7 +175,7 @@ symbolic-discovery/
 pip install symbolic-discovery[pysr]
 ```
 
-PySR is integrated as an optional solver backend (`--models pysr`). It pulls Julia via `juliapkg` / `juliacall`; the first run downloads a Julia runtime and precompiles packages, subsequent runs are fast.
+PySR is integrated as an optional solver backend (`--models pysr`). It pulls Julia via `juliapkg` / `juliacall`. Note that the first run downloads a Julia runtime and precompiles packages, subsequent runs are fast.
 
 ### Feynman / Bonus Datasets
 
@@ -215,17 +212,21 @@ pip install -U pip
 pip install -e ".[dev,pysr]"
 ```
 
-The module entrypoint also works: `python -m symbolic_discovery --help`.
+The module entrypoint also works: `python -m symbolic_discovery ...`.
 
-### Tests
+### Tests, linting, and type checking
 
 ```bash
 pytest                            # All 330 tests
-pytest --cov=symbolic_discovery   # With coverage (≈88%)
+pytest --cov=symbolic_discovery   # With coverage (around 88%)
 pytest tests/test_bacon3f.py -v   # One file, verbose
+
+ruff check .                      # Lint
+ruff check . --fix                # Auto-fix lint issues
+mypy symbolic_discovery           # Type check
 ```
 
-Feynman-tier tests are skipped when the database is absent, so the suite stays green on a clean clone.
+All three run in CI on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`).
 
 ### Adding a new solver
 
@@ -233,15 +234,15 @@ Feynman-tier tests are skipped when the database is absent, so the suite stays g
 2. Add one line to `symbolic_discovery/solvers/registry.py`.
 3. Add tests in `tests/`.
 
-`solvers/pysr.py` is the canonical example of wrapping an external library; `solvers/bacon3f.py` shows the minimal in-tree case.
+`solvers/pysr.py` is an example of wrapping an external library; `solvers/bacon3f.py` shows the minimal case.
 
 ### Adding a new dataset
 
-Add a `DatasetConfig` entry to `symbolic_discovery/data/synthetic.py` (for S/T-tier datasets). It immediately integrates with the CLI, runner, and viewer.
+Add a `DatasetConfig` entry to `symbolic_discovery/data/synthetic.py`. It immediately integrates with the CLI, runner, and viewer.
 
 ### Code style
 
-Type hints throughout, docstrings on every public class and function, three-tier `pytest` suite (unit / integration / end-to-end).
+Type hints throughout (enforced by mypy), docstrings on every public class and function, three-tier `pytest` suite (unit / integration / end-to-end).
 
 ## Programmatic Usage
 
