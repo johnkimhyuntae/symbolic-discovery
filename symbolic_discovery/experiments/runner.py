@@ -22,7 +22,7 @@ from symbolic_discovery.data import (
     pretty_equation,
     resolve,
 )
-from symbolic_discovery.solvers import SOLVER_REGISTRY, SolverResult
+from symbolic_discovery.solvers import SOLVER_REGISTRY
 
 from .plan import (
     Run,

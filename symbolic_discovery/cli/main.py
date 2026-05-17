@@ -14,9 +14,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Run one or more models on one or more datasets")
-
-    view_p = sub.add_parser("view", help="View results CSVs")
+    sub.add_parser("run", help="Run one or more models on one or more datasets")
+    sub.add_parser("view", help="View results CSVs")
 
     return parser
 

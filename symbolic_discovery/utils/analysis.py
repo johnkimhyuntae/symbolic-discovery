@@ -92,7 +92,10 @@ def equivalence_ratio(discovered: str, key: str, *, feynman_root: str = "feynman
     formula, return the constant of proportionality.  Otherwise, return 0.0.
     """
     expected = resolve(key, feynman_root=feynman_root).formula
-    rhs = lambda s: s.split("=", 1)[1] if "=" in s else s
+
+    def rhs(s):
+        return s.split("=", 1)[1] if "=" in s else s
+
     ratio = sympy.simplify(sympy.sympify(rhs(discovered)) / sympy.sympify(rhs(expected)))
     if ratio.free_symbols:
         return 0.0
