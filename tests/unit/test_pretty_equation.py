@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from symbolic_discovery.data.api import pretty_equation, _build_pretty_map
 

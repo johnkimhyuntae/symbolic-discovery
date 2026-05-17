@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 
-import pytest
 import yaml
 
 from symbolic_discovery.experiments.runner import (
