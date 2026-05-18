@@ -1,0 +1,9 @@
+# Ablation study - BACON.3F without uncorrelatedness check
+# Command: symbolic-discovery run --study studies/ablation_uncorrelatedness.yaml --log-level verbose --output ablation_uncorrelatedness.csv
+# max_depth is set to 5 as, without the uncorrelatedness check, the experiment takes DAYS to run with the default max_depth of 6.
+variants:
+  - {name: baseline, model: bacon3f, params: {max_depth: 5}}
+  - {name: no_uncorr, model: bacon3f, params: {r_threshold: 0.0, max_depth: 5}}
+datasets: [T, F11, F15, F34, F41, F58, F60, F83, F85, F96] # T + Representative 9 Fs (F64 is excluded, no_uncorr never terminates on it within 24 hours.)
+noise: [0.0, 0.025] # Clean and medium noise.
+seeds: [73,74,75,76,77,78,79,80,81,82]

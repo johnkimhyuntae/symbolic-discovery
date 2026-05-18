@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "symbolic-discovery"
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.10"
 description = "A benchmarking framework for symbolic regression research, implementing BACON.3F/BACON.7F alongside PySR with configurable, curated datasets and a unified experiment runner."
 readme = "README.md"

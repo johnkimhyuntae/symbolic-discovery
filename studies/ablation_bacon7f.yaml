@@ -1,0 +1,9 @@
+# Ablation study - BACON.7F without hyperparameter relaxation / fold partitions
+# Command: symbolic-discovery run --study studies/ablation_bacon7f.yaml --log-level verbose --output ablation_bacon7f.csv
+variants:
+  - {name: baseline, model: bacon7f} # scale_factor = 1.2 and n_folds = 3
+  - {name: no_relax, model: bacon7f, params: {scale_factor: 1.0}}
+  - {name: no_folds, model: bacon7f, params: {n_folds: 1}}
+datasets: [T, F11, F15, F34, F41, F58, F60, F64, F83, F85, F96] # T + Representative 10 Fs
+noise: [0.0, 0.025] # Clean and medium noise.
+seeds: [73,74,75,76,77,78,79,80,81,82]

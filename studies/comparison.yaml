@@ -1,0 +1,11 @@
+# Comparison study: BACON.3F vs BACON.7F vs PySR vs Normalised PySR
+# Command: symbolic-discovery run --study studies/comparison.yaml --output comparison.csv
+variants:
+  - {name: bacon3f, model: bacon3f}
+  - {name: bacon7f, model: bacon7f, params: {n_folds: 3}} # n_folds=3 ended up being the best performing value, so we use that for comparison.
+  - {name: pysr, model: pysr}
+  - {name: pysr_norm, model: pysr, params: {niterations: 10, maxsize: 15}}
+datasets: [T, F11, F15, F34, F41, F58, F60, F64, F83, F85, F96] # T + Representative 10 Fs
+noise: [0.0, 0.001, 0.01, 0.025, 0.05] # Clean, very small noise (0.1%), small noise (1%), medium noise (2.5%), high noise (5%).
+n_samples: [10, 50, 100, 1000, 10000] # 5 sample sizes to cover the full spectrum from very low to very high data regimes.
+seeds: [73, 74, 75, 76, 77] # 5 seeds to balance robustness and computational cost.

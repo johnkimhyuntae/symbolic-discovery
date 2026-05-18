@@ -1,0 +1,33 @@
+# Hyperparameter Sensitivity study - BACON.3F
+# Command: symbolic-discovery run --study studies/parameters_bacon3f.yaml --output parameters_bacon3f.csv
+variants:
+  # baseline
+  - {name: b3f_baseline, model: bacon3f} # max_depth = 6, constancy_threshold = 0.10, r_threshold = 0.45, r2_threshold = 0.90
+  
+  # max_depth
+  - {name: b3f_md_3, model: bacon3f, params: {max_depth: 3}}
+  - {name: b3f_md_4, model: bacon3f, params: {max_depth: 4}}
+  - {name: b3f_md_5, model: bacon3f, params: {max_depth: 5}}
+  - {name: b3f_md_7, model: bacon3f, params: {max_depth: 7}}
+
+  # constancy_threshold
+  - {name: b3f_ct_0.01, model: bacon3f, params: {constancy_threshold: 0.01}}
+  - {name: b3f_ct_0.05, model: bacon3f, params: {constancy_threshold: 0.05}}
+  - {name: b3f_ct_0.20, model: bacon3f, params: {constancy_threshold: 0.20}}
+  - {name: b3f_ct_0.30, model: bacon3f, params: {constancy_threshold: 0.30}}
+
+  # r_threshold
+  - {name: b3f_rt_0.25, model: bacon3f, params: {r_threshold: 0.25}}
+  - {name: b3f_rt_0.35, model: bacon3f, params: {r_threshold: 0.35}}
+  - {name: b3f_rt_0.55, model: bacon3f, params: {r_threshold: 0.55}}
+  - {name: b3f_rt_0.65, model: bacon3f, params: {r_threshold: 0.65}}
+
+  # r2_threshold
+  - {name: b3f_r2_0.70, model: bacon3f, params: {r2_threshold: 0.70}}
+  - {name: b3f_r2_0.80, model: bacon3f, params: {r2_threshold: 0.80}}
+  - {name: b3f_r2_0.95, model: bacon3f, params: {r2_threshold: 0.95}}
+  - {name: b3f_r2_0.99, model: bacon3f, params: {r2_threshold: 0.99}}
+
+datasets: [T, F11, F15, F34, F41, F58, F60, F64, F83, F85, F96] # T + Representative 10 Fs
+noise: [0.0, 0.025] # Clean and medium noise.
+seeds: [73,74,75,76,77,78,79,80,81,82]
