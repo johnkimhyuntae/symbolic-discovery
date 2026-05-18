@@ -1,28 +1,20 @@
-# Python envs
+# General files
 venv/
 .venv/
-
-# Python caches / bytecode
 __pycache__/
 *.py[cod]
-
-# Test artifacts
 .pytest_cache/
-
-# Packaging / build artifacts
 *.egg-info/
 build/
 dist/
-
-# OS / editor junk
 .DS_Store
 .vscode/
+.coverage
 
-# Local datasets / experiment studies
+# Local files
 /feynman/
 /data/
-/studies/
-
-# Local results
+# /studies/
 /results/
+/figures/
 /*.csv
