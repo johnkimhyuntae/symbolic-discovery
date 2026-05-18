@@ -1,0 +1,9 @@
+# Validation study
+# Command: symbolic-discovery run --study studies/validation.yaml --exclude-bacon --log-level verbose --output validation.csv
+variants:
+  - {name: bacon3f, model: bacon3f}
+  - {name: bacon7f, model: bacon7f}
+datasets: [S, T, F]
+noise: [0.0, 0.025, 0.05] # Clean, medium noise (2.5%), and high noise (5%).
+n_samples: [1000]
+seeds: [73,74,75,76,77,78,79,80,81,82] # 10 seeds

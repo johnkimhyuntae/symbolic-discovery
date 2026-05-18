@@ -1,0 +1,39 @@
+# Hyperparameter Sensitivity study - BACON.7F
+# Command: symbolic-discovery run --study studies/parameters_bacon7f.yaml --output parameters_bacon7f.csv
+variants:
+  # baseline
+  - {name: b7f_baseline, model: bacon7f} # n_folds = 5, scale_factor = 1.2, initial_epsilon = 0.01, initial_delta = 0.1, c_val = 0.2
+  
+  # n_folds
+  - {name: b7f_nf_3, model: bacon7f, params: {n_folds: 3}}
+  - {name: b7f_nf_7, model: bacon7f, params: {n_folds: 7}}
+  - {name: b7f_nf_9, model: bacon7f, params: {n_folds: 9}}
+  - {name: b7f_nf_11, model: bacon7f, params: {n_folds: 11}}
+
+  # scale_factor
+  - {name: b7f_sf_1.1, model: bacon7f, params: {scale_factor: 1.1}}
+  - {name: b7f_sf_1.3, model: bacon7f, params: {scale_factor: 1.3}}
+  - {name: b7f_sf_1.4, model: bacon7f, params: {scale_factor: 1.4}}
+  - {name: b7f_sf_1.5, model: bacon7f, params: {scale_factor: 1.5}}
+
+  # initial_epsilon
+  - {name: b7f_eps_0.001, model: bacon7f, params: {initial_epsilon: 0.001}}
+  - {name: b7f_eps_0.005, model: bacon7f, params: {initial_epsilon: 0.005}}
+  - {name: b7f_eps_0.025, model: bacon7f, params: {initial_epsilon: 0.025}}
+  - {name: b7f_eps_0.050, model: bacon7f, params: {initial_epsilon: 0.050}}
+
+  # initial_delta
+  - {name: b7f_del_0.01, model: bacon7f, params: {initial_delta: 0.01}}
+  - {name: b7f_del_0.05, model: bacon7f, params: {initial_delta: 0.05}}
+  - {name: b7f_del_0.20, model: bacon7f, params: {initial_delta: 0.20}}
+  - {name: b7f_del_0.30, model: bacon7f, params: {initial_delta: 0.30}}
+
+  # c_val
+  - {name: b7f_cval_0.05, model: bacon7f, params: {c_val: 0.05}}
+  - {name: b7f_cval_0.10, model: bacon7f, params: {c_val: 0.10}}
+  - {name: b7f_cval_0.30, model: bacon7f, params: {c_val: 0.30}}
+  - {name: b7f_cval_0.50, model: bacon7f, params: {c_val: 0.50}}
+
+datasets: [T, F11, F15, F34, F41, F58, F60, F64, F83, F85, F96] # T + Representative 10 Fs
+noise: [0.0, 0.025] # Clean and medium noise.
+seeds: [73,74,75,76,77,78,79,80,81,82]
