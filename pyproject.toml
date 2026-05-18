@@ -6,9 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "symbolic-discovery"
 version = "0.1.0"
 requires-python = ">=3.10"
-
-description = "A benchmarking framework for symbolic regression research, implementing BACON.3F/BACON.7F alongside PySR with curated datasets and a unified experiment runner."
+description = "A benchmarking framework for symbolic regression research, implementing BACON.3F/BACON.7F alongside PySR with configurable, curated datasets and a unified experiment runner."
 readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Hyuntae Kim" }]
+keywords = ["symbolic-regression", "bacon", "pysr", "benchmarking"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+]
 
 dependencies = [
 	"numpy>=1.23",
